@@ -199,7 +199,7 @@ files                           fail     # closed file, EXCL, access mode and wr
 fios_overlay02                  fail     # FIOS overlays
 fios_overlay_resolve            fail     # FIOS overlays
 fios_overlay_table              fail     # FIOS overlays
-format                          fail     # sceClibSnprintf with %#x, %.0d and long arguments
+format                          fail     # sceClibSnprintf with %#x and long arguments
 forvm_attr_refusal              pass
 forvm_suspend_core_handover     fail     # the ForVM suspend hands the core over in the wrong order between T and U
 fpscr_flags_across_calls        fail     # the start handler sees an inexact flag (0x10) in FPSCR that the Vita does not set
