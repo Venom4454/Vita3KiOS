@@ -233,13 +233,22 @@ struct AacDecoderState : public DecoderState {
     SwrContext *swr = nullptr;
     AVFrame *frame;
     uint32_t es_size_used;
+    // HE-AAC (SBR): the guest gives the core rate and gets twice that; FFmpeg may or may not detect
+    // the SBR data by itself, so its output is converted to what the guest asked for either way
+    // (Vita3K-Plus). Without this, undetected SBR played voices at double speed
+    uint32_t output_sample_rate = 0;
+    uint32_t output_channels = 0;
+    bool is_sbr = false;
+    int configured_input_sample_rate = 0;
+    int configured_input_channels = 0;
+    int configured_input_format = -1;
     uint32_t get(DecoderQuery query) override;
 
     bool send(const uint8_t *data, uint32_t size) override;
     bool receive(uint8_t *data, DecoderSize *size) override;
     uint32_t get_es_size() override;
 
-    explicit AacDecoderState(uint32_t sample_rate, uint32_t channels);
+    explicit AacDecoderState(uint32_t sample_rate, uint32_t channels, bool is_sbr = false);
     ~AacDecoderState() override;
 };
 
