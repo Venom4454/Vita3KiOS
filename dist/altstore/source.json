@@ -12,6 +12,15 @@
       "bundleIdentifier": "org.vita3k.ios",
       "versions": [
         {
+          "version": "1.5.1",
+          "buildVersion": "244",
+          "date": "2026-11-14T22:15:17Z",
+          "localizedDescription": "Hinoki 1.5.1\n\nFixes\n- Missing text in games that draw their text into 16-bit surfaces\n- Dialogue that ran too fast in some games (audio envelope, audio timing, HE-AAC voices)\n- 2D trail effects broken since 1.2.0\n- Black screen at game start while the shader pipeline cache loaded (it now loads in the background)\n- Crashes on installs without the extended address space (free SideStore signing): smaller JIT pool and texture cache there; menu music can no longer crash the app\n- A crash when a game's GPU sync data was damaged\n- Deleting a single file from save data now really deletes it\n- Opening Control Center while folding a page on the PS Vita home screen\n- More game fixes ported from Vita3K-Plus\n\nPerformance\n- Shorter pause while JIT is set up (smaller code cache pool, same thread count), with an \"Enabling JIT...\" note\n- Smoother library while JIT is prepared; menu music waits until JIT is ready\n\nNew\n- V-Sync setting (global and per game)\n- TV mode reworked: its own setting, the game shows only on the TV (standalone installs)\n- RAM helpers retry by themselves, work in Strata 4.0 / LiveContainer with Helper Process Support, and say exactly what to change when they can't start\n- Settings > About > Setup check: JIT, memory, address space, RAM helpers, firmware and storage at a glance, with fixes and a copyable summary\n- Continue playing card in the library\n- Ad hoc play over the internet through a relay server (thanks MrBouza)\n- Dialog screens refresh correctly (thanks MrBouza)\n\n## Install\n- **AltStore / SideStore:** add the source `https://raw.githubusercontent.com/oledz-i/Hinoki/main/dist/altstore/source.json` to get updates in-app.\n- **LiveContainer / TrollStore / other signers:** download `Hinoki-1.5.1.ipa` below.\n\nBuild 244, commit f6c76d2.",
+          "downloadURL": "https://github.com/oledz-i/Hinoki/releases/download/v1.5.1/Hinoki-1.5.1.ipa",
+          "size": 17762945,
+          "minOSVersion": "17.4"
+        },
+        {
           "version": "1.5.0",
           "buildVersion": "219",
           "date": "2026-11-13T13:22:59Z",
@@ -127,11 +136,11 @@
         ],
         "privacy": {}
       },
-      "version": "1.5.0",
-      "versionDate": "2026-11-13T13:22:59Z",
-      "versionDescription": "**Built-in JIT**\n- No JIT app needed: import your pairing file once (Settings › Built-in JIT) and Hinoki enables JIT by itself every time it opens. Powered by StikJIT from the StikDebug team.\n- LocalDevVPN has to be connected. Not available inside LiveContainer (use StikDebug there).\n\n**TV mode**\n- AirPlay screen mirroring or an HDMI adapter puts the game full screen on the TV, and the phone becomes the controller (tap empty space for the touchscreen).\n\n**Local multiplayer (experimental)**\n- Ad hoc play between phones on the same Wi-Fi or hotspot: Settings › Multiplayer.\n\n**Performance and heat**\n- The renderer no longer keeps a CPU core busy while waiting: cooler, and more room for the game.\n- New shaders compile faster and objects pop in less.\n- Short waits in games no longer spin the CPU.\n\n**Graphics**\n- Images games draw for themselves (skies, crowds, players, stadium screens) show up with surface sync, which no longer overwrites game data.\n- Widescreen works in more games.\n- Texture memory is capped by your phone's RAM: fewer games closed by iOS.\n\n**Fixes**\n- Videos in other apps play normally while Hinoki is in the background.\n- No crackly audio in heavy scenes with Keep cool on.\n- A button to hide the top row of on-screen buttons.\n- Game fix updates.\n\n## Install\n- **AltStore / SideStore:** add the source `https://raw.githubusercontent.com/oledz-i/Hinoki/main/dist/altstore/source.json` to get updates in-app.\n- **LiveContainer / TrollStore / other signers:** download `Hinoki-1.5.0.ipa` below.\n\nBuild 219, commit 034e92c.",
-      "downloadURL": "https://github.com/oledz-i/Hinoki/releases/download/v1.5.0/Hinoki-1.5.0.ipa",
-      "size": 17632289
+      "version": "1.5.1",
+      "versionDate": "2026-11-14T22:15:17Z",
+      "versionDescription": "Hinoki 1.5.1\n\nFixes\n- Missing text in games that draw their text into 16-bit surfaces\n- Dialogue that ran too fast in some games (audio envelope, audio timing, HE-AAC voices)\n- 2D trail effects broken since 1.2.0\n- Black screen at game start while the shader pipeline cache loaded (it now loads in the background)\n- Crashes on installs without the extended address space (free SideStore signing): smaller JIT pool and texture cache there; menu music can no longer crash the app\n- A crash when a game's GPU sync data was damaged\n- Deleting a single file from save data now really deletes it\n- Opening Control Center while folding a page on the PS Vita home screen\n- More game fixes ported from Vita3K-Plus\n\nPerformance\n- Shorter pause while JIT is set up (smaller code cache pool, same thread count), with an \"Enabling JIT...\" note\n- Smoother library while JIT is prepared; menu music waits until JIT is ready\n\nNew\n- V-Sync setting (global and per game)\n- TV mode reworked: its own setting, the game shows only on the TV (standalone installs)\n- RAM helpers retry by themselves, work in Strata 4.0 / LiveContainer with Helper Process Support, and say exactly what to change when they can't start\n- Settings > About > Setup check: JIT, memory, address space, RAM helpers, firmware and storage at a glance, with fixes and a copyable summary\n- Continue playing card in the library\n- Ad hoc play over the internet through a relay server (thanks MrBouza)\n- Dialog screens refresh correctly (thanks MrBouza)\n\n## Install\n- **AltStore / SideStore:** add the source `https://raw.githubusercontent.com/oledz-i/Hinoki/main/dist/altstore/source.json` to get updates in-app.\n- **LiveContainer / TrollStore / other signers:** download `Hinoki-1.5.1.ipa` below.\n\nBuild 244, commit f6c76d2.",
+      "downloadURL": "https://github.com/oledz-i/Hinoki/releases/download/v1.5.1/Hinoki-1.5.1.ipa",
+      "size": 17762945
     }
   ]
 }
