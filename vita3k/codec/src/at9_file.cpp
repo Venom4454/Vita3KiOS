@@ -22,8 +22,10 @@ extern "C" {
 }
 
 #include <algorithm>
+#include <climits>
 #include <cstdint>
 #include <cstring>
+#include <filesystem>
 #include <fstream>
 #include <iterator>
 #include <vector>
@@ -45,7 +47,7 @@ void wr32(std::vector<uint8_t> &out, uint32_t v) {
 }
 } // namespace
 
-bool decode_at9_file_to_wav(const std::string &input_path, const std::string &output_path) {
+static bool decode_at9_file_to_wav_impl(const std::string &input_path, const std::string &output_path) {
     std::ifstream in(input_path, std::ios::binary);
     if (!in)
         return false;
@@ -97,55 +99,94 @@ bool decode_at9_file_to_wav(const std::string &input_path, const std::string &ou
         return false;
     }
 
-    const size_t frame_shorts = static_cast<size_t>(info.frameSamples) * info.channels;
-    std::vector<int16_t> pcm;
-    pcm.reserve((data_size / block_align + 1) * info.framesInSuperframe * frame_shorts);
-    std::vector<int16_t> frame(frame_shorts);
-    for (size_t offset = 0; offset + block_align <= data_size; offset += block_align) {
-        const uint8_t *p = data + offset;
-        for (int f = 0; f < info.framesInSuperframe; f++) {
-            int used = 0;
-            if (Atrac9Decode(handle, p, frame.data(), &used) != 0) {
-                Atrac9ReleaseHandle(handle);
-                return false;
-            }
-            p += used;
-            pcm.insert(pcm.end(), frame.begin(), frame.end());
-        }
-    }
-    Atrac9ReleaseHandle(handle);
+    struct HandleGuard {
+        void *handle;
+        ~HandleGuard() { Atrac9ReleaseHandle(handle); }
+    } guard{ handle };
 
     // fact: total samples per channel, input overlap, encoder delay
-    size_t skip = 0, total = pcm.size() / info.channels;
+    size_t skip = 0, limit = SIZE_MAX;
     if (fact) {
-        skip = std::min<size_t>(rd32(fact + 8), total);
-        total = std::min<size_t>(skip + rd32(fact), total);
+        skip = rd32(fact + 8);
+        limit = skip + static_cast<size_t>(rd32(fact));
     }
-    if (total <= skip)
-        return false;
-    const size_t samples = total - skip;
 
-    std::vector<uint8_t> wav;
-    const uint32_t bytes = static_cast<uint32_t>(samples * info.channels * 2);
-    wav.insert(wav.end(), { 'R', 'I', 'F', 'F' });
-    wr32(wav, 36 + bytes);
-    wav.insert(wav.end(), { 'W', 'A', 'V', 'E', 'f', 'm', 't', ' ' });
-    wr32(wav, 16);
-    wr16(wav, 1);
-    wr16(wav, static_cast<uint16_t>(info.channels));
-    wr32(wav, static_cast<uint32_t>(info.samplingRate));
-    wr32(wav, static_cast<uint32_t>(info.samplingRate * info.channels * 2));
-    wr16(wav, static_cast<uint16_t>(info.channels * 2));
-    wr16(wav, 16);
-    wav.insert(wav.end(), { 'd', 'a', 't', 'a' });
-    wr32(wav, bytes);
-    const size_t header = wav.size();
-    wav.resize(header + bytes);
-    std::memcpy(wav.data() + header, pcm.data() + skip * info.channels, bytes);
-
-    std::ofstream out(output_path, std::ios::binary | std::ios::trunc);
+    // Streamed to disk one frame at a time: a long song decoded into one buffer needed ~100 MiB in one
+    // piece, which failed (and crashed) when the app was short of address space. Written next to the
+    // result and renamed at the end, so an interrupted decode never leaves a broken cached file
+    const std::string part_path = output_path + ".part";
+    std::ofstream out(part_path, std::ios::binary | std::ios::trunc);
     if (!out)
         return false;
-    out.write(reinterpret_cast<const char *>(wav.data()), static_cast<std::streamsize>(wav.size()));
-    return out.good();
+    std::vector<uint8_t> header;
+    const auto write_header = [&](uint32_t bytes) {
+        header.clear();
+        header.insert(header.end(), { 'R', 'I', 'F', 'F' });
+        wr32(header, 36 + bytes);
+        header.insert(header.end(), { 'W', 'A', 'V', 'E', 'f', 'm', 't', ' ' });
+        wr32(header, 16);
+        wr16(header, 1);
+        wr16(header, static_cast<uint16_t>(info.channels));
+        wr32(header, static_cast<uint32_t>(info.samplingRate));
+        wr32(header, static_cast<uint32_t>(info.samplingRate * info.channels * 2));
+        wr16(header, static_cast<uint16_t>(info.channels * 2));
+        wr16(header, 16);
+        header.insert(header.end(), { 'd', 'a', 't', 'a' });
+        wr32(header, bytes);
+        out.write(reinterpret_cast<const char *>(header.data()), static_cast<std::streamsize>(header.size()));
+    };
+    write_header(0); // sizes filled in at the end
+
+    const size_t frame_shorts = static_cast<size_t>(info.frameSamples) * info.channels;
+    std::vector<int16_t> frame(frame_shorts);
+    size_t position = 0; // samples per channel decoded so far
+    size_t written = 0; // samples per channel written
+    for (size_t offset = 0; offset + block_align <= data_size && position < limit; offset += block_align) {
+        const uint8_t *p = data + offset;
+        for (int f = 0; f < info.framesInSuperframe && position < limit; f++) {
+            int used = 0;
+            if (Atrac9Decode(guard.handle, p, frame.data(), &used) != 0)
+                break; // keep what was decoded: a damaged tail shouldn't cost the whole song
+            p += used;
+            const size_t frame_start = position;
+            const size_t frame_end = position + static_cast<size_t>(info.frameSamples);
+            position = frame_end;
+            const size_t from = std::max(frame_start, skip), to = std::min(frame_end, limit);
+            if (to <= from)
+                continue;
+            out.write(reinterpret_cast<const char *>(frame.data() + (from - frame_start) * info.channels),
+                static_cast<std::streamsize>((to - from) * info.channels * 2));
+            written += to - from;
+        }
+    }
+    std::error_code ec;
+    if (written == 0 || !out.good() || written * info.channels * 2 > UINT32_MAX - 64) {
+        out.close();
+        std::filesystem::remove(part_path, ec);
+        return false;
+    }
+    out.seekp(0);
+    write_header(static_cast<uint32_t>(written * info.channels * 2));
+    out.close();
+    if (out.fail()) {
+        std::filesystem::remove(part_path, ec);
+        return false;
+    }
+    std::filesystem::rename(part_path, output_path, ec);
+    if (ec) {
+        std::filesystem::remove(part_path, ec);
+        return false;
+    }
+    return true;
+}
+
+bool decode_at9_file_to_wav(const std::string &input_path, const std::string &output_path) {
+    // Menu music is optional: running out of memory here must never take the app down
+    try {
+        return decode_at9_file_to_wav_impl(input_path, output_path);
+    } catch (...) {
+        std::error_code ec;
+        std::filesystem::remove(output_path + ".part", ec);
+        return false;
+    }
 }

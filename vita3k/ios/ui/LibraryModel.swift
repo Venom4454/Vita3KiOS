@@ -193,21 +193,41 @@ final class LibraryModel: ObservableObject {
     var version: String { String(cString: v3k_version()) }
     var storagePath: String { String(cString: v3k_storage_path()) }
 
-    func reload() {
-        jitEnabled = v3k_is_jit_enabled()
-        jitPreparing = v3k_jit_preparing()
-        jitCanRequest = v3k_jit_can_request()
-        jitProgress = Int(v3k_jit_progress())
-        jitTarget = Int(v3k_jit_target())
-        jitStatus = takeString(v3k_jit_status_text()) ?? ""
-        if jitPreparing && !settingUpJIT {
-            // JIT is being set up in the background: look again shortly
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in self?.reload() }
+    /// Only the JIT fields, and only the ones that changed: polled while JIT is prepared. Publishing
+    /// unchanged values (or the whole game list) made SwiftUI redraw the home screen 4 times a second
+    func reloadJIT() {
+        func set<T: Equatable>(_ path: ReferenceWritableKeyPath<LibraryModel, T>, _ value: T) {
+            if self[keyPath: path] != value { self[keyPath: path] = value }
         }
+        let wasPreparing = jitPreparing
+        set(\.jitEnabled, v3k_is_jit_enabled())
+        set(\.jitPreparing, v3k_jit_preparing())
+        set(\.jitCanRequest, v3k_jit_can_request())
+        set(\.jitProgress, Int(v3k_jit_progress()))
+        set(\.jitTarget, Int(v3k_jit_target()))
+        set(\.jitStatus, takeString(v3k_jit_status_text()) ?? "")
+        if jitPreparing && !settingUpJIT && !jitPolling {
+            // JIT is being set up in the background: look again shortly
+            jitPolling = true
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
+                self?.jitPolling = false
+                self?.reloadJIT()
+            }
+        } else if wasPreparing && !jitPreparing {
+            // Done: the full refresh once (games may need JIT state)
+            reload()
+        }
+    }
+
+    private var jitPolling = false
+
+    func reload() {
+        reloadJIT()
         firmwareState = v3k_firmware_state()
         if let json = takeString(v3k_apps_json()), let data = json.data(using: .utf8),
            let decoded = try? JSONDecoder().decode([GameApp].self, from: data) {
-            apps = decoded.sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
+            let sorted = decoded.sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
+            if sorted != apps { apps = sorted }
         }
         if let json = takeString(v3k_storage_info_json()), let data = json.data(using: .utf8),
            let decoded = try? JSONDecoder().decode(StorageInfo.self, from: data) {

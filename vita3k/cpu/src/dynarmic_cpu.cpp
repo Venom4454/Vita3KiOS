@@ -36,6 +36,7 @@
 
 #include <chrono>
 #include <cstdio>
+#include <dlfcn.h>
 #include <libkern/OSCacheControl.h>
 #include <mach/mach.h>
 #include <os/proc.h>
@@ -117,6 +118,60 @@ std::size_t ios_footprint_mib() {
     return static_cast<std::size_t>(vm_info.phys_footprint / (1024 * 1024));
 }
 
+// Whether iOS gave this process the large address space (com.apple.developer.kernel.extended-virtual-addressing).
+// Free SideStore signing drops it: the app then gets a few GiB of addresses, and the 4 GiB guest
+// reservation plus a full JIT pool (mapped twice: RX and RW) leaves almost nothing for malloc
+bool ios_has_extended_va() {
+    static const bool extended = [] {
+        // Looked up at run time: CoreFoundation's headers define a Ptr type that clashes with the guest Ptr<T>
+        using CreateFn = void *(*)(void *);
+        using CopyFn = void *(*)(void *, void *, void *);
+        using MakeStringFn = void *(*)(void *, const char *, std::uint32_t);
+        using TypeOfFn = unsigned long (*)(void *);
+        using BoolTypeFn = unsigned long (*)();
+        using BoolValueFn = unsigned char (*)(void *);
+        using ReleaseFn = void (*)(void *);
+        auto create = reinterpret_cast<CreateFn>(dlsym(RTLD_DEFAULT, "SecTaskCreateFromSelf"));
+        auto copy = reinterpret_cast<CopyFn>(dlsym(RTLD_DEFAULT, "SecTaskCopyValueForEntitlement"));
+        auto make_string = reinterpret_cast<MakeStringFn>(dlsym(RTLD_DEFAULT, "CFStringCreateWithCString"));
+        auto type_of = reinterpret_cast<TypeOfFn>(dlsym(RTLD_DEFAULT, "CFGetTypeID"));
+        auto bool_type = reinterpret_cast<BoolTypeFn>(dlsym(RTLD_DEFAULT, "CFBooleanGetTypeID"));
+        auto bool_value = reinterpret_cast<BoolValueFn>(dlsym(RTLD_DEFAULT, "CFBooleanGetValue"));
+        auto release = reinterpret_cast<ReleaseFn>(dlsym(RTLD_DEFAULT, "CFRelease"));
+        bool entitled = false;
+        const bool can_check = create && copy && make_string && type_of && bool_type && bool_value && release;
+        if (create && copy && make_string && type_of && bool_type && bool_value && release) {
+            if (void *task = create(nullptr)) {
+                for (const char *name : { "com.apple.developer.kernel.extended-virtual-addressing", "com.apple.private.kernel.extended-virtual-addressing" }) {
+                    void *key = make_string(nullptr, name, 0x08000100 /* kCFStringEncodingUTF8 */);
+                    if (!key)
+                        continue;
+                    if (void *value = copy(task, key, nullptr)) {
+                        if (type_of(value) == bool_type() && bool_value(value))
+                            entitled = true;
+                        release(value);
+                    }
+                    release(key);
+                }
+                release(task);
+            }
+        }
+        task_vm_info_data_t vm_info{};
+        mach_msg_type_number_t count = TASK_VM_INFO_COUNT;
+        std::uint64_t range_gib = 0;
+        if (task_info(mach_task_self(), TASK_VM_INFO, reinterpret_cast<task_info_t>(&vm_info), &count) == KERN_SUCCESS && vm_info.max_address > vm_info.min_address)
+            range_gib = (vm_info.max_address - vm_info.min_address) >> 30;
+        // SecTask reads the running process, so inside LiveContainer this is the container's entitlement.
+        // If it can't be checked at all, keep the old behavior (full pool)
+        const bool extended_va = entitled || !can_check;
+        LOG_INFO("iOS memory: extended address space {} (address range {} GiB)", can_check ? (entitled ? "yes" : "NO") : "unknown", range_gib);
+        if (!extended_va)
+            LOG_WARN("iOS memory: no extended address space (usual with free SideStore signing). Using a smaller JIT pool so the app doesn't run out of addresses");
+        return extended_va;
+    }();
+    return extended;
+}
+
 struct IosCacheCounts {
     std::size_t tiny;
     std::size_t small;
@@ -130,10 +185,10 @@ const IosCacheCounts &ios_cache_counts() {
         const std::size_t available_mib = os_proc_available_memory() / (1024 * 1024);
         IosCacheCounts chosen{ IOS_TINY_CODE_CACHE_COUNT, IOS_SMALL_CODE_CACHE_COUNT, IOS_BIG_CODE_CACHE_COUNT };
         const char *tier = "full";
-        if (available_mib != 0 && available_mib < 1600) {
+        if ((available_mib != 0 && available_mib < 1600) || !ios_has_extended_va()) {
             // 3 GB devices: 40 x 4 + 14 x 16 + 1 x 64 = 448 MiB (55 threads)
             chosen = { 40, 14, 1 };
-            tier = "very low memory";
+            tier = ios_has_extended_va() ? "very low memory" : "small address space";
         } else if (available_mib != 0 && available_mib < 2600) {
             // 4 GB devices: 48 x 4 + 18 x 16 + 2 x 64 = 608 MiB (68 threads; FIFA 15 keeps about 25 alive)
             chosen = { 48, 18, 2 };

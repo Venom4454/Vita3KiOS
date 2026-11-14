@@ -470,6 +470,7 @@ final class MenuMusic: ObservableObject {
     private var wanted = false // the library is on screen
     private var titleTimer: Timer?
     private var stopWork: DispatchWorkItem?
+    private var waitingForJIT = false
 
     var enabled: Bool { UserDefaults.standard.object(forKey: "v3k.musicEnabled") as? Bool ?? true }
 
@@ -554,6 +555,18 @@ final class MenuMusic: ObservableObject {
         // inside hosts that keep apps alive (LiveContainer, debugger-attached JIT). Other apps' videos
         // then would not play until the phone was restarted.
         guard enabled, UIApplication.shared.applicationState == .active else { return }
+        // Not while JIT is being prepared: the debugger freezes the app for a moment, which made the
+        // music start, stutter and cut. Starts as soon as JIT is ready (also after Control Center)
+        if v3k_jit_preparing() {
+            guard !waitingForJIT else { return }
+            waitingForJIT = true
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+                guard let self else { return }
+                self.waitingForJIT = false
+                if self.wanted { self.resume() }
+            }
+            return
+        }
         let session = AVAudioSession.sharedInstance()
         // No "other audio is playing" check: tools such as StikDebug keep a silent audio session alive in
         // the background, which made iOS report other audio all the time and the music never played.

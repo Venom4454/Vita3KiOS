@@ -82,7 +82,7 @@ enum LibraryHost {
 
     private static func requestJIT() {
         v3k_jit_request()
-        model.reload()
+        model.reloadJIT()
         startMusicWhenJITIsReady()
     }
 
@@ -96,7 +96,7 @@ enum LibraryHost {
         func check() {
             if v3k_is_jit_enabled() || v3k_jit_preparing() {
                 watchingForJIT = false
-                model.reload()
+                model.reloadJIT()
                 return
             }
             if v3k_jit_can_request() {
@@ -197,6 +197,7 @@ enum LibraryHost {
         controller.setNeedsUpdateOfSupportedInterfaceOrientations()
         controller.setNeedsStatusBarAppearanceUpdate()
         controller.setNeedsUpdateOfHomeIndicatorAutoHidden()
+        controller.setNeedsUpdateOfScreenEdgesDeferringSystemGestures()
         if let scene = window.windowScene {
             let mask: UIInterfaceOrientationMask = wantsLandscape ? .landscape : .allButUpsideDown
             scene.requestGeometryUpdate(.iOS(interfaceOrientations: mask)) { error in
@@ -221,6 +222,11 @@ final class LibraryHostingController: UIHostingController<AnyView> {
 
     override var prefersStatusBarHidden: Bool { UserDefaults.standard.bool(forKey: "v3k.vitaHome") }
     override var prefersHomeIndicatorAutoHidden: Bool { UserDefaults.standard.bool(forKey: "v3k.vitaHome") }
+    // The PS Vita home screen folds its pages from the top-right corner, where Control Center is pulled
+    // down: the first swipe there folds the page, a second one opens Control Center (as in games)
+    override var preferredScreenEdgesDeferringSystemGestures: UIRectEdge {
+        UserDefaults.standard.bool(forKey: "v3k.vitaHome") ? .top : []
+    }
 }
 
 // Called from C++ (ios_platform.mm) on the main thread

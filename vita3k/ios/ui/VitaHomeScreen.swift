@@ -167,6 +167,13 @@ struct Peelable<Content: View>: View {
             }
             .coordinateSpace(name: "peel")
         }
+        // Control Center, a call or the app switcher can take the touch mid-fold: SwiftUI then never
+        // ends the drag, which left the page stuck half folded. Put it back
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.willResignActiveNotification)) { _ in
+            guard dragging, !finishing else { return }
+            dragging = false
+            point = nil
+        }
     }
 }
 
@@ -241,6 +248,7 @@ struct VitaHomeView: View {
     var preview: String? = nil
 
     @EnvironmentObject private var model: LibraryModel
+    @ObservedObject private var builtinJIT = BuiltinJIT.shared
     @AppStorage("v3k.vitaHome") private var vitaHome = false
     @AppStorage("v3k.vitaHome.lockScreen") private var showStartScreen = true
     @AppStorage("v3k.vitaHome.theme") private var themeId = VitaTheme.defaultId
@@ -331,6 +339,21 @@ struct VitaHomeView: View {
                 }
             }
             .frame(width: proxy.size.width, height: proxy.size.height)
+            // JIT setup freezes the app for about a second while the debugger works: say so, so the
+            // pause doesn't look like a glitch. Static on purpose (a spinner would just stop mid-turn)
+            .overlay(alignment: .bottom) {
+                if builtinJIT.busy || model.jitPreparing {
+                    Label("Enabling JIT…", systemImage: "bolt.fill")
+                        .font(VitaFont.font(space.len(15)))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, space.len(14))
+                        .padding(.vertical, space.len(7))
+                        .background(Capsule().fill(Color.black.opacity(0.55)))
+                        .padding(.bottom, space.len(18))
+                        .allowsHitTesting(false)
+                        .transition(.opacity)
+                }
+            }
             // The information bar is its own layer above everything, so nothing that comes and goes
             // underneath (a new wallpaper, a LiveArea, a panel) can ever cover or reorder it
             .overlay(alignment: .top) {

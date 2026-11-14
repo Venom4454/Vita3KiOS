@@ -55,9 +55,11 @@
 #include <dispatch/dispatch.h>
 #include <mach/mach.h>
 #include <os/proc.h>
+#include <sys/mman.h>
 
 #include <atomic>
 #include <chrono>
+#include <cstdint>
 #include <cstdlib>
 #include <mutex>
 #include <string>
@@ -242,9 +244,25 @@ int main(int argc, char *argv[]) {
         write_watch::begin = 0;
         write_watch::end = 0;
 
-        LOG_INFO("Launching {} (JIT {}, {} free JIT caches, {} MiB of memory available)", title_id,
+        // Address space left (not memory): without the extended address space entitlement it runs out
+        // long before RAM does, and every allocation fails with bad_alloc
+        const auto largest_free_block_mib = [] {
+            std::uint64_t low = 0, high = 64ull << 10; // MiB
+            while (high - low > 64) {
+                const std::uint64_t mid = (low + high) / 2;
+                void *probe = mmap(nullptr, mid << 20, PROT_NONE, MAP_ANON | MAP_PRIVATE, -1, 0);
+                if (probe != MAP_FAILED) {
+                    munmap(probe, mid << 20);
+                    low = mid;
+                } else {
+                    high = mid;
+                }
+            }
+            return low;
+        };
+        LOG_INFO("Launching {} (JIT {}, {} free JIT caches, {} MiB of memory available, largest free address block ~{} MiB)", title_id,
             ios::jit_pool_ready() ? "ready" : "NOT ready", ios::jit_pool_available(),
-            os_proc_available_memory() / (1024 * 1024));
+            os_proc_available_memory() / (1024 * 1024), largest_free_block_mib());
 
         // The library can rotate freely; games are landscape
         // (Portrait mode: upright too, with the game at the top and the controls below)
