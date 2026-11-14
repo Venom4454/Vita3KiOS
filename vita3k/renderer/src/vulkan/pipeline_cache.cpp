@@ -359,30 +359,33 @@ void PipelineCache::read_pipeline_cache() {
     pipeline_cache_file.read(pipeline_data.data(), pipeline_size);
     pipeline_cache_file.close();
 
-    vk::PipelineCacheCreateInfo cache_info{
-        .initialDataSize = pipeline_size,
-        .pInitialData = pipeline_data.data()
-    };
-
-    state.device.destroyPipelineCache(pipeline_cache);
-    try {
-        pipeline_cache = state.device.createPipelineCache(cache_info);
-    } catch (const vk::SystemError &e) {
-        // A damaged cache file (for example saved after the GPU failed) must never stop the game
-        // from starting: drop it and start with an empty cache, the pipelines get rebuilt
-        LOG_WARN("Pipeline cache could not be loaded ({}), deleting it and starting fresh", e.what());
-        for (auto it = pipelines.begin(); it != pipelines.end();) {
-            if (it->second == nullptr)
-                it = pipelines.erase(it);
-            else
-                ++it;
+    // Turned back into a driver cache on its own thread (see loaded_cache): the game starts at once
+    if (cache_loader.joinable())
+        cache_loader.join();
+    if (loaded_cache_ready.exchange(false))
+        state.device.destroyPipelineCache(loaded_cache);
+    loaded_cache = nullptr;
+    cache_loader = std::thread([this, path, pipeline_data = std::move(pipeline_data)]() {
+        const auto start = std::chrono::steady_clock::now();
+        vk::PipelineCacheCreateInfo cache_info{
+            .initialDataSize = pipeline_data.size(),
+            .pInitialData = pipeline_data.data()
+        };
+        try {
+            loaded_cache = state.device.createPipelineCache(cache_info);
+        } catch (const vk::SystemError &e) {
+            // A damaged cache file (for example saved after the GPU failed) must never stop the game:
+            // drop it, the pipelines get rebuilt (into the empty cache, which is the one saved then)
+            LOG_WARN("Pipeline cache could not be loaded ({}), deleting it and starting fresh", e.what());
+            std::error_code ec;
+            fs::remove(path, ec);
+            return;
         }
-        std::error_code ec;
-        fs::remove(path, ec);
-        pipeline_cache = state.device.createPipelineCache(vk::PipelineCacheCreateInfo{});
-        return;
-    }
-    LOG_INFO("Pipeline cache read and loaded");
+        loaded_cache_ready.store(true, std::memory_order_release);
+        LOG_INFO("Pipeline cache read and loaded in the background ({} ms, {} MiB)",
+            std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start).count(),
+            pipeline_data.size() / (1024 * 1024));
+    });
 }
 
 void PipelineCache::save_pipeline_cache(bool in_background) {
@@ -410,7 +413,7 @@ void PipelineCache::save_pipeline_cache(bool in_background) {
 
         std::vector<uint8_t> pipeline_data;
         try {
-            pipeline_data = state.device.getPipelineCacheData(pipeline_cache);
+            pipeline_data = state.device.getPipelineCacheData(active_cache());
         } catch (const vk::SystemError &e) {
             LOG_WARN("Not saving the pipeline cache: {}", e.what());
             return;
@@ -549,6 +552,11 @@ void PipelineCache::cleanup() {
         fragment_textures_layout[i] = nullptr;
     }
 
+    if (cache_loader.joinable())
+        cache_loader.join();
+    if (loaded_cache_ready.exchange(false))
+        state.device.destroy(loaded_cache);
+    loaded_cache = nullptr;
     state.device.destroy(pipeline_cache);
     pipeline_cache = nullptr;
 
@@ -1302,7 +1310,7 @@ vk::Pipeline PipelineCache::compile_pipeline(SceGxmPrimitiveType type, vk::Rende
     // vulkan-hpp throws when the driver refuses the pipeline. On the background compile threads that
     // exception closed Vita3K (One Piece Burning Blood loading a 3D model): skip the draw instead.
     try {
-        const auto result = state.device.createGraphicsPipeline(pipeline_cache, pipeline_info);
+        const auto result = state.device.createGraphicsPipeline(active_cache(), pipeline_info);
         if (result.result != vk::Result::eSuccess) {
             LOG_ERROR("Failed to create a pipeline ({})", vk::to_string(result.result));
             return failed_pipeline();

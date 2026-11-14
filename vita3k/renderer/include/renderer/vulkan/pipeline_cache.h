@@ -83,6 +83,15 @@ private:
 #endif
 
     vk::PipelineCache pipeline_cache;
+    // The saved pipeline cache, loaded on a thread of its own: MoltenVK spends many seconds turning a
+    // big cache back into shader libraries, and the game used to wait for that on a black screen
+    // (Madden: 7-13 s). Pipelines built before it is ready use pipeline_cache (empty).
+    vk::PipelineCache loaded_cache;
+    std::atomic<bool> loaded_cache_ready{ false };
+    std::thread cache_loader;
+    vk::PipelineCache active_cache() const {
+        return loaded_cache_ready.load(std::memory_order_acquire) ? loaded_cache : pipeline_cache;
+    }
 
     // first index: 0 if color is backed by memory, 1 otherwise
     // second index: 1 if depth-stencil is force loaded, 0 otherwise
