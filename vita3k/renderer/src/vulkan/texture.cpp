@@ -25,6 +25,8 @@
 #include <gxm/types.h>
 #include <renderer/functions.h>
 #include <util/address_space.h>
+
+#include <atomic>
 #include <util/align.h>
 #include <vkutil/vkutil.h>
 
@@ -71,7 +73,9 @@ VKTextureCache::VKTextureCache(VKState &state)
     size_t length = sizeof(ram);
     if (sysctlbyname("hw.memsize", &ram, &length, nullptr, 0) != 0 || ram == 0)
         ram = 6ull << 30;
-    memory_budget = std::clamp<uint64_t>(ram / 6, 512ull << 20, 1536ull << 20);
+    // ram / 6 left a 6 GB phone with a 940 MiB cache on top of the game, the JIT and the GPU's own
+    // memory; textures that were compressed on the Vita take 8-16 times the room here (decompressed)
+    memory_budget = std::clamp<uint64_t>(ram <= (8ull << 30) ? ram / 8 : ram / 6, 512ull << 20, 1536ull << 20);
     // Without the large address space (free SideStore signing) every texture also eats into the few
     // GiB of addresses left beside the guest's 4 GiB: keep the cache small there
     if (!address_space::extended())
@@ -270,12 +274,18 @@ void VKTextureCache::prepare_staging_buffer(bool is_configure) {
         staging_buffer->waiting_fence = current_fence;
         staging_buffer->used_so_far = 0;
 
-        if (staging_buffer->buffer.size < current_texture->memory_needed) {
-            // we need to create a bigger buffer
+        // Staging buffers only ever grew: one big texture left its buffer at that size for the rest of the
+        // game, and with 16 of them a game uploading large (decompressed) textures kept hundreds of MiB
+        // of staging memory for nothing (a 6 GB phone ran out of memory loading a map). A buffer bigger
+        // than this is given back once it's free again and the next upload is smaller
+        constexpr uint64_t STAGING_KEEP_MAX = 8ull << 20;
+        const bool oversized = staging_buffer->buffer.size > STAGING_KEEP_MAX && current_texture->memory_needed <= STAGING_KEEP_MAX;
+        if (staging_buffer->buffer.size < current_texture->memory_needed || oversized) {
+            // we need to create a bigger (or a smaller) buffer
             // destroy the previous one if there is, no need to defer destroy it as we know it is no longer being used
             staging_buffer->buffer.destroy();
 
-            staging_buffer->buffer.size = current_texture->memory_needed;
+            staging_buffer->buffer.size = std::max<uint64_t>(current_texture->memory_needed, oversized ? (2ull << 20) : 0);
             staging_buffer->buffer.init_buffer(vk::BufferUsageFlagBits::eTransferSrc, vkutil::vma_mapped_alloc);
         }
     }
@@ -438,6 +448,13 @@ void VKTextureCache::configure_texture(const SceGxmTexture &gxm_texture) {
     if (is_cube)
         memory_needed *= 6;
     current_texture->memory_needed = align(memory_needed, 16);
+    if (memory_needed >= (24u << 20)) {
+        // Rare and expensive: say which textures they are (a handful per run)
+        static std::atomic<int> logged{ 0 };
+        if (logged.fetch_add(1) < 12)
+            LOG_INFO("Large texture: {}x{} base format {:#x} as {}, {} mips{}, {} MiB to upload", width, height, static_cast<uint32_t>(base_format),
+                vk::to_string(vk_format), mip_count, is_cube ? ", cube" : "", memory_needed >> 20);
+    }
     vkutil::Image &image = current_texture->texture;
 
     // In case the cache is full, no need to put the previous image in the destroy queue
