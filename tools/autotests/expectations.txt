@@ -533,7 +533,7 @@ start_delay_cores               fail     # threads ignore their core
 start_equal_priority_same_core  fail     # threads ignore their core and priority, so starting a thread above the starter doesn't switch to it
 start_restarted_last_cpu        fail     # a restarted thread's core fields are 0 where the Vita reports the cores it ran on
 stat_mode                       fail     # file and directory stat modes, attributes and directory sizes
-strings                         fail     # sceClibMemchr, case of bytes above 0x7F
+strings                         pass
 suspend_affinity_resume         fail     # threads that are ready can't be suspended for VM
 suspend_for_vm_edges            pass
 suspend_for_vm_handoff          pass
