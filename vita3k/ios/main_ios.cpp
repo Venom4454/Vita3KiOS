@@ -356,6 +356,7 @@ int main(int argc, char *argv[]) {
                     // threads falling behind showed only as late chunks; this names them
                     if (!session_paused() && !ios::app_in_background()) {
                         std::vector<std::pair<double, std::string>> busy;
+                        std::map<SceUID, uint64_t> thread_cpu_now; // threads that ended drop out
                         {
                             std::lock_guard<std::mutex> guard(emuenv->kernel.mutex);
                             for (const auto &[id, thread] : emuenv->kernel.threads) {
@@ -368,13 +369,15 @@ int main(int argc, char *argv[]) {
                                     continue;
                                 const uint64_t cpu_us = static_cast<uint64_t>(info.user_time.seconds + info.system_time.seconds) * 1000000
                                     + info.user_time.microseconds + info.system_time.microseconds;
-                                auto &last = thread_cpu_at_log[id];
+                                const auto previous = thread_cpu_at_log.find(id);
+                                const uint64_t last = previous != thread_cpu_at_log.end() ? previous->second : 0;
                                 const double share = last && cpu_us >= last ? static_cast<double>(cpu_us - last) / 1e6 / std::max(seconds, 0.001) : 0.0;
-                                last = cpu_us;
+                                thread_cpu_now[id] = cpu_us;
                                 if (share >= 0.05)
                                     busy.emplace_back(share, fmt::format("{} {:.0f}% (prio {})", thread->name.empty() ? std::to_string(id) : thread->name, share * 100, thread->get_priority()));
                             }
                         }
+                        thread_cpu_at_log.swap(thread_cpu_now);
                         std::sort(busy.begin(), busy.end(), [](const auto &a, const auto &b) { return a.first > b.first; });
                         if (busy.size() > 8)
                             busy.resize(8);

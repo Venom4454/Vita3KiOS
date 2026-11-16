@@ -24,6 +24,7 @@
 #include <kernel/types.h>
 #include <packages/functions.h>
 
+#include <algorithm>
 #include <chrono>
 #include <thread>
 #include <utility>
@@ -1367,6 +1368,25 @@ EXPORT(int, sceKernelCreateThreadForUser, const char *name, SceKernelThreadEntry
     return thread->id;
 }
 
+// The host wakes a sleeping thread late: logs showed guest sleeps of ~400 us lasting ~530 us on
+// average (a third longer), which slows every game thread that paces its work with short sleeps
+// (Minecraft's world and chunk threads sleep hundreds of times a second). Each thread learns how late
+// its wakes run and sets its timer that much earlier, so a sleep lasts about what the game asked.
+// The correction never exceeds a quarter of the delay or 250 us, and nothing spins
+static Deadline early_deadline(std::chrono::steady_clock::time_point start, SceUInt delay_us, uint32_t late_us) {
+    const uint32_t early = std::min<uint32_t>({ late_us, delay_us / 4, 250u });
+    return start + std::chrono::microseconds(delay_us - early);
+}
+
+static void learn_lateness(uint32_t &late_us, Deadline timer, std::chrono::steady_clock::time_point woke) {
+    const int64_t late = std::chrono::duration_cast<std::chrono::microseconds>(woke - timer).count();
+    // moving average over ~8 sleeps; a wake far off (preempted, callbacks ran) counts as at most 1 ms
+    const int64_t sample = std::clamp<int64_t>(late, 0, 1000);
+    late_us = static_cast<uint32_t>((static_cast<int64_t>(late_us) * 7 + sample) / 8);
+}
+
+static thread_local uint32_t delay_late_us = 0;
+
 static int delay_thread(KernelState &kernel, SceUID thread_id, SceUInt delay_us) {
     if (delay_us == 0)
         return SCE_KERNEL_ERROR_INVALID_ARGUMENT;
@@ -1376,11 +1396,13 @@ static int delay_thread(KernelState &kernel, SceUID thread_id, SceUInt delay_us)
     delay_us = std::max(delay_us, 200u);
     const ThreadStatePtr thread = kernel.get_thread(thread_id);
     const auto start = std::chrono::steady_clock::now();
-    const Deadline deadline = start + std::chrono::microseconds(delay_us);
+    const Deadline deadline = early_deadline(start, delay_us, delay_late_us);
     const auto result = guest_result(thread->delay_until(deadline, false));
+    const auto woke = std::chrono::steady_clock::now();
+    learn_lateness(delay_late_us, deadline, woke);
     delay_stats::calls()++;
     delay_stats::asked_us() += delay_us;
-    delay_stats::slept_us() += std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - start).count();
+    delay_stats::slept_us() += std::chrono::duration_cast<std::chrono::microseconds>(woke - start).count();
     return result;
 }
 
@@ -1391,9 +1413,11 @@ static int delay_thread_cb(KernelState &kernel, SceUID thread_id, SceUInt delay_
 
     delay_us = std::max(delay_us, 200u);
     // Time spent in callbacks counts toward the delay
-    const Deadline deadline = std::chrono::steady_clock::now() + std::chrono::microseconds(delay_us);
+    const Deadline deadline = early_deadline(std::chrono::steady_clock::now(), delay_us, delay_late_us);
     const ThreadStatePtr thread = kernel.get_thread(thread_id);
-    return guest_result(thread->delay_until(deadline, true));
+    const auto result = guest_result(thread->delay_until(deadline, true));
+    learn_lateness(delay_late_us, deadline, std::chrono::steady_clock::now());
+    return result;
 }
 
 EXPORT(int, sceKernelDelayThread, SceUInt delay) {

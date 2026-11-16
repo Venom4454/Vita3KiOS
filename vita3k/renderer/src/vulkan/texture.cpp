@@ -575,7 +575,8 @@ void VKTextureCache::upload_texture_impl(SceGxmTextureBaseFormat base_format, ui
     if (base_format == SCE_GXM_TEXTURE_BASE_FORMAT_PVRT2BPP || base_format == SCE_GXM_TEXTURE_BASE_FORMAT_PVRT4BPP) {
         // Native PVRTC (only these reach here undecoded): every level is at least 2x2 blocks for the GPU
         // (8x8 texels at 4 bpp, 16x8 at 2 bpp) while the game's data for the smallest levels can be
-        // shorter: copy what the game has and pad with zeros
+        // shorter: copy what the game has and repeat it to fill the rest (zeros decoded as a dark border
+        // that showed on distant surfaces; PVRTC wraps around, so a repeated block decodes like the original)
         const bool two_bpp = base_format == SCE_GXM_TEXTURE_BASE_FORMAT_PVRT2BPP;
         const uint32_t block_w = two_bpp ? 8 : 4;
         const vk::DeviceSize gpu_size = (std::max(width, block_w * 2) / block_w) * (std::max(height, 8u) / 4) * 8;
@@ -585,9 +586,13 @@ void VKTextureCache::upload_texture_impl(SceGxmTextureBaseFormat base_format, ui
             return;
         }
         uint8_t *dst = static_cast<uint8_t *>(staging_buffer.buffer.mapped_data) + staging_buffer.used_so_far;
-        memcpy(dst, text_data, std::min(gpu_size, guest_size));
-        if (gpu_size > guest_size)
-            memset(dst + guest_size, 0, gpu_size - guest_size);
+        const vk::DeviceSize copied = std::min(gpu_size, guest_size);
+        memcpy(dst, text_data, copied);
+        for (vk::DeviceSize filled = copied; filled < gpu_size && copied > 0;) {
+            const vk::DeviceSize chunk = std::min(copied, gpu_size - filled);
+            memcpy(dst + filled, dst, chunk);
+            filled += chunk;
+        }
         const vk::BufferImageCopy pvrtc_region{
             .bufferOffset = staging_buffer.used_so_far,
             .bufferRowLength = 0,
