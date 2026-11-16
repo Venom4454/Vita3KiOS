@@ -62,7 +62,7 @@ struct VitaButtonMapView: View {
                     selected = slot
                     listening = false
                 }
-                .aspectRatio(2.2, contentMode: .fit)
+                .aspectRatio(182.0 / 95.0, contentMode: .fit)
                 .listRowInsets(EdgeInsets(top: 8, leading: 4, bottom: 8, trailing: 4))
                 .listRowBackground(Color.clear)
             } footer: {
@@ -183,135 +183,181 @@ final class PadWatcher: ObservableObject {
     }
 }
 
-/// A PS Vita drawn from shapes, front or back; every mappable button is tappable
+/// A PS Vita (PCH-1000) drawn to scale from its real measurements: 182 x 83.5 mm, 5" 960x544 screen,
+/// controls where they sit on the real system. Everything is placed in millimetres and scaled to fit.
+/// Front or back; every mappable button is tappable.
 struct VitaDrawing: View {
     let side: Int
     let selected: Int32?
     let lit: Set<Int32>
     let tap: (Int32) -> Void
 
-    private let body1 = Color(white: 0.13)
-    private let edge = Color(white: 0.28)
+    static let bodyW: CGFloat = 182
+    static let bodyH: CGFloat = 83.5
+
+    /// The body: straight top and bottom edges, rounded ends (elliptical corners)
+    static func bodyPath(in rect: CGRect) -> Path {
+        let rx = rect.width * (38 / bodyW), ry = rect.height * (40.5 / bodyH)
+        var path = Path()
+        let r = rect
+        path.move(to: CGPoint(x: r.minX + rx, y: r.minY))
+        path.addLine(to: CGPoint(x: r.maxX - rx, y: r.minY))
+        path.addCurve(to: CGPoint(x: r.maxX, y: r.midY), control1: CGPoint(x: r.maxX - rx * 0.45, y: r.minY), control2: CGPoint(x: r.maxX, y: r.midY - ry * 0.55))
+        path.addCurve(to: CGPoint(x: r.maxX - rx, y: r.maxY), control1: CGPoint(x: r.maxX, y: r.midY + ry * 0.55), control2: CGPoint(x: r.maxX - rx * 0.45, y: r.maxY))
+        path.addLine(to: CGPoint(x: r.minX + rx, y: r.maxY))
+        path.addCurve(to: CGPoint(x: r.minX, y: r.midY), control1: CGPoint(x: r.minX + rx * 0.45, y: r.maxY), control2: CGPoint(x: r.minX, y: r.midY + ry * 0.55))
+        path.addCurve(to: CGPoint(x: r.minX + rx, y: r.minY), control1: CGPoint(x: r.minX, y: r.midY - ry * 0.55), control2: CGPoint(x: r.minX + rx * 0.45, y: r.minY))
+        path.closeSubpath()
+        return path
+    }
 
     var body: some View {
         GeometryReader { geo in
-            let w = geo.size.width, h = geo.size.height
+            // millimetres -> points, the body centred and as large as fits (room above for L/R)
+            let k = min(geo.size.width / (Self.bodyW + 4), geo.size.height / (Self.bodyH + 8))
+            let ox = (geo.size.width - Self.bodyW * k) / 2, oy = (geo.size.height - Self.bodyH * k) / 2 + 2 * k
+            let mm = { (x: CGFloat, y: CGFloat) in CGPoint(x: ox + x * k, y: oy + y * k) }
+            let bodyRect = CGRect(x: ox, y: oy, width: Self.bodyW * k, height: Self.bodyH * k)
             ZStack {
+                // shoulder buttons (top edge, at the corners; swapped on the back)
+                shoulder(side == 0 ? 9 : 10, rect: CGRect(x: ox + 9 * k, y: oy - 2.2 * k, width: 34 * k, height: 5 * k), k: k)
+                shoulder(side == 0 ? 10 : 9, rect: CGRect(x: ox + (Self.bodyW - 43) * k, y: oy - 2.2 * k, width: 34 * k, height: 5 * k), k: k)
                 // shell
-                RoundedRectangle(cornerRadius: h * 0.42, style: .continuous)
-                    .fill(LinearGradient(colors: [Color(white: 0.2), body1], startPoint: .top, endPoint: .bottom))
-                    .overlay(RoundedRectangle(cornerRadius: h * 0.42, style: .continuous).stroke(edge, lineWidth: 1.5))
-                    .frame(width: w * 0.96, height: h * 0.86)
-                    .position(x: w / 2, y: h * 0.53)
-                // shoulders
-                shoulder(9, x: w * 0.17, w: w, h: h)
-                shoulder(10, x: w * 0.83, w: w, h: h)
-                if side == 0 { front(w: w, h: h) } else { back(w: w, h: h) }
+                Self.bodyPath(in: bodyRect)
+                    .fill(LinearGradient(colors: [Color(white: 0.2), Color(white: 0.09)], startPoint: .top, endPoint: .bottom))
+                Self.bodyPath(in: bodyRect).stroke(Color(white: 0.34), lineWidth: max(1, 0.35 * k))
+                if side == 0 { front(mm: mm, k: k, body: bodyRect) } else { back(mm: mm, k: k, body: bodyRect) }
             }
         }
     }
 
-    @ViewBuilder private func front(w: CGFloat, h: CGFloat) -> some View {
-        // screen
-        RoundedRectangle(cornerRadius: 6)
-            .fill(LinearGradient(colors: [Color(red: 0.08, green: 0.1, blue: 0.16), .black], startPoint: .topLeading, endPoint: .bottomTrailing))
-            .overlay(Text("Touch screen").font(.system(size: h * 0.06, weight: .medium)).foregroundStyle(.white.opacity(0.35)))
-            .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color(white: 0.3), lineWidth: 1))
-            .frame(width: w * 0.5, height: w * 0.5 * 544 / 960)
-            .position(x: w / 2, y: h * 0.52)
-        // D-pad
-        let dx = w * 0.135, dy = h * 0.38, ds = h * 0.105
-        key(11, x: dx, y: dy - ds, size: ds)
-        key(12, x: dx, y: dy + ds, size: ds)
-        key(13, x: dx - ds, y: dy, size: ds)
-        key(14, x: dx + ds, y: dy, size: ds)
-        // face buttons
-        let fx = w * 0.865, fy = h * 0.38, fs = h * 0.105
-        round(3, x: fx, y: fy - fs, size: fs, color: Color(red: 0.35, green: 0.85, blue: 0.7))
-        round(0, x: fx, y: fy + fs, size: fs, color: Color(red: 0.55, green: 0.65, blue: 1))
-        round(2, x: fx - fs, y: fy, size: fs, color: Color(red: 0.95, green: 0.55, blue: 0.85))
-        round(1, x: fx + fs, y: fy, size: fs, color: Color(red: 1, green: 0.42, blue: 0.42))
-        // sticks (L3/R3 exist on a PS TV)
-        stick(7, x: w * 0.165, y: h * 0.7, size: h * 0.15)
-        stick(8, x: w * 0.835, y: h * 0.7, size: h * 0.15)
-        // PS, Select, Start
-        pill(5, x: w * 0.12, y: h * 0.86, w: h * 0.12, h: h * 0.08)
-        pill(4, x: w * 0.82, y: h * 0.86, w: h * 0.2, h: h * 0.06)
-        pill(6, x: w * 0.9, y: h * 0.86, w: h * 0.2, h: h * 0.06)
+    // MARK: front
+
+    @ViewBuilder private func front(mm: @escaping (CGFloat, CGFloat) -> CGPoint, k: CGFloat, body: CGRect) -> some View {
+        // glass front panel, just inside the edge
+        Self.bodyPath(in: body.insetBy(dx: 1.4 * k, dy: 1.4 * k))
+            .fill(LinearGradient(colors: [Color(white: 0.07), Color(white: 0.03)], startPoint: .top, endPoint: .bottom))
+        // 5" OLED, 110.7 x 62.7 mm active area, centred
+        RoundedRectangle(cornerRadius: 0.8 * k)
+            .fill(LinearGradient(colors: [Color(red: 0.07, green: 0.09, blue: 0.14), .black], startPoint: .topLeading, endPoint: .bottomTrailing))
+            .overlay(Text("Touch screen").font(.system(size: 4 * k, weight: .medium)).foregroundStyle(.white.opacity(0.3)))
+            .frame(width: 110.7 * k, height: 62.7 * k)
+            .position(mm(91, 41.75))
+        // D-pad: four arms around (21.5, 29)
+        dpadArm(11, at: mm(21.5, 29 - 6.6), k: k, rotation: 0)
+        dpadArm(12, at: mm(21.5, 29 + 6.6), k: k, rotation: 180)
+        dpadArm(13, at: mm(21.5 - 6.6, 29), k: k, rotation: 270)
+        dpadArm(14, at: mm(21.5 + 6.6, 29), k: k, rotation: 90)
+        // face buttons around (160.5, 29)
+        face(3, at: mm(160.5, 29 - 8.8), k: k, color: Color(red: 0.36, green: 0.84, blue: 0.68))
+        face(0, at: mm(160.5, 29 + 8.8), k: k, color: Color(red: 0.56, green: 0.66, blue: 1))
+        face(2, at: mm(160.5 - 8.8, 29), k: k, color: Color(red: 0.94, green: 0.56, blue: 0.84))
+        face(1, at: mm(160.5 + 8.8, 29), k: k, color: Color(red: 1, green: 0.43, blue: 0.43))
+        // analogue sticks (pressable on a PS TV: L3/R3)
+        stick(7, at: mm(27, 55.5), k: k)
+        stick(8, at: mm(155, 55.5), k: k)
+        // PS button bottom left; Select and Start bottom right
+        pill(5, at: mm(18.5, 69.5), size: CGSize(width: 8 * k, height: 6 * k), k: k, text: "PS")
+        pill(4, at: mm(154, 69.5), size: CGSize(width: 7.5 * k, height: 3.6 * k), k: k, text: "SELECT")
+        pill(6, at: mm(165, 69.5), size: CGSize(width: 7.5 * k, height: 3.6 * k), k: k, text: "START")
     }
 
-    @ViewBuilder private func back(w: CGFloat, h: CGFloat) -> some View {
-        RoundedRectangle(cornerRadius: 10)
-            .fill(Color(white: 0.17))
-            .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color(white: 0.32), style: StrokeStyle(lineWidth: 1, dash: [4, 3])))
-            .overlay(VStack(spacing: 4) {
-                Text("Rear touchpad").font(.system(size: h * 0.07, weight: .semibold)).foregroundStyle(.white.opacity(0.55))
-                Text("Used by touch: on-screen rear-touch buttons in games").font(.system(size: h * 0.045)).foregroundStyle(.white.opacity(0.35))
+    // MARK: back
+
+    @ViewBuilder private func back(mm: @escaping (CGFloat, CGFloat) -> CGPoint, k: CGFloat, body: CGRect) -> some View {
+        // finger grips
+        Ellipse().fill(Color(white: 0.15)).overlay(Ellipse().stroke(Color(white: 0.26), lineWidth: max(1, 0.3 * k)))
+            .frame(width: 24 * k, height: 46 * k).position(mm(24, 46))
+        Ellipse().fill(Color(white: 0.15)).overlay(Ellipse().stroke(Color(white: 0.26), lineWidth: max(1, 0.3 * k)))
+            .frame(width: 24 * k, height: 46 * k).position(mm(158, 46))
+        // rear touchpad
+        RoundedRectangle(cornerRadius: 3 * k)
+            .fill(Color(white: 0.13))
+            .overlay(RoundedRectangle(cornerRadius: 3 * k).stroke(Color(white: 0.3), lineWidth: max(1, 0.3 * k)))
+            .overlay(VStack(spacing: 1.5 * k) {
+                Text("Rear touchpad").font(.system(size: 4.2 * k, weight: .semibold)).foregroundStyle(.white.opacity(0.55))
+                Text("Works by touch: games show on-screen rear-touch buttons").font(.system(size: 2.8 * k)).foregroundStyle(.white.opacity(0.35))
             })
-            .frame(width: w * 0.56, height: h * 0.46)
-            .position(x: w / 2, y: h * 0.52)
-        Text("Back of the PS Vita: L and R are the shoulder buttons above.")
-            .font(.system(size: h * 0.045))
-            .foregroundStyle(.white.opacity(0.4))
-            .position(x: w / 2, y: h * 0.86)
+            .frame(width: 98 * k, height: 50 * k)
+            .position(mm(91, 46))
+        // rear camera
+        Circle().fill(Color.black).overlay(Circle().stroke(Color(white: 0.35), lineWidth: max(1, 0.3 * k)))
+            .frame(width: 4 * k, height: 4 * k).position(mm(91, 11))
     }
 
-    private func state(_ id: Int32) -> (fill: Color, ring: Color) {
-        if lit.contains(id) { return (Color.accentColor, .white) }
-        if selected == id { return (Color.accentColor.opacity(0.45), Color.accentColor) }
-        return (Color(white: 0.22), Color(white: 0.38))
+    // MARK: pieces
+
+    private func colors(_ id: Int32) -> (fill: Color, ring: Color, glow: Bool) {
+        if lit.contains(id) { return (Color.accentColor, .white, true) }
+        if selected == id { return (Color.accentColor.opacity(0.4), Color.accentColor, false) }
+        return (Color(white: 0.17), Color(white: 0.36), false)
     }
 
-    private func label(_ id: Int32, size: CGFloat) -> some View {
-        Text(VitaButtonMapView.buttons[id]?.glyph ?? "").font(.system(size: size, weight: .bold)).foregroundStyle(.white)
-            .minimumScaleFactor(0.4).lineLimit(1)
-    }
-
-    private func key(_ id: Int32, x: CGFloat, y: CGFloat, size: CGFloat) -> some View {
-        let s = state(id)
-        return RoundedRectangle(cornerRadius: size * 0.2).fill(s.fill)
-            .overlay(RoundedRectangle(cornerRadius: size * 0.2).stroke(s.ring, lineWidth: 1.5))
-            .overlay(label(id, size: size * 0.42))
-            .frame(width: size, height: size).position(x: x, y: y)
+    private func dpadArm(_ id: Int32, at p: CGPoint, k: CGFloat, rotation: Double) -> some View {
+        let c = colors(id)
+        // one arm: square end with a pointed inner end, 6.6 mm wide
+        let arm = UnevenRoundedRectangle(topLeadingRadius: 1.2 * k, bottomLeadingRadius: 0, bottomTrailingRadius: 0, topTrailingRadius: 1.2 * k)
+        return arm.fill(c.fill).overlay(arm.stroke(c.ring, lineWidth: max(1, 0.35 * k)))
+            .overlay(Image(systemName: "triangle.fill").font(.system(size: 2.4 * k)).foregroundStyle(.white.opacity(0.6)).offset(y: -0.6 * k))
+            .frame(width: 6.6 * k, height: 7.2 * k)
+            .rotationEffect(.degrees(rotation))
+            .shadow(color: c.glow ? Color.accentColor : .clear, radius: 3 * k)
+            .position(p)
             .contentShape(Rectangle()).onTapGesture { tap(id) }
             .accessibilityLabel(VitaButtonMapView.buttons[id]?.name ?? "")
     }
 
-    private func round(_ id: Int32, x: CGFloat, y: CGFloat, size: CGFloat, color: Color) -> some View {
-        let s = state(id)
-        return Circle().fill(s.fill)
-            .overlay(Circle().stroke(selected == id || lit.contains(id) ? s.ring : color.opacity(0.8), lineWidth: 1.8))
-            .overlay(Text(VitaButtonMapView.buttons[id]?.glyph ?? "").font(.system(size: size * 0.5, weight: .bold)).foregroundStyle(color))
-            .frame(width: size, height: size).position(x: x, y: y)
+    private func face(_ id: Int32, at p: CGPoint, k: CGFloat, color: Color) -> some View {
+        let c = colors(id)
+        return Circle().fill(c.fill)
+            .overlay(Circle().stroke(c.glow || selected == id ? c.ring : Color(white: 0.36), lineWidth: max(1, 0.35 * k)))
+            .overlay(Text(VitaButtonMapView.buttons[id]?.glyph ?? "").font(.system(size: 4 * k, weight: .semibold)).foregroundStyle(color))
+            .frame(width: 7.6 * k, height: 7.6 * k)
+            .shadow(color: c.glow ? Color.accentColor : .clear, radius: 3 * k)
+            .position(p)
             .contentShape(Circle()).onTapGesture { tap(id) }
             .accessibilityLabel(VitaButtonMapView.buttons[id]?.name ?? "")
     }
 
-    private func stick(_ id: Int32, x: CGFloat, y: CGFloat, size: CGFloat) -> some View {
-        let s = state(id)
-        return Circle().fill(RadialGradient(colors: [Color(white: 0.3), s.fill], center: .center, startRadius: 1, endRadius: size / 2))
-            .overlay(Circle().stroke(s.ring, lineWidth: 1.5))
-            .overlay(label(id, size: size * 0.26).opacity(0.8))
-            .frame(width: size, height: size).position(x: x, y: y)
-            .contentShape(Circle()).onTapGesture { tap(id) }
-            .accessibilityLabel(VitaButtonMapView.buttons[id]?.name ?? "")
+    private func stick(_ id: Int32, at p: CGPoint, k: CGFloat) -> some View {
+        let c = colors(id)
+        return ZStack {
+            Circle().fill(Color(white: 0.05)).frame(width: 13.5 * k, height: 13.5 * k)
+            Circle().fill(RadialGradient(colors: [Color(white: 0.3), c.fill], center: .topLeading, startRadius: 0, endRadius: 8 * k))
+                .overlay(Circle().stroke(c.ring, lineWidth: max(1, 0.35 * k)))
+                .frame(width: 10.5 * k, height: 10.5 * k)
+            Text(VitaButtonMapView.buttons[id]?.glyph ?? "").font(.system(size: 2.8 * k, weight: .bold)).foregroundStyle(.white.opacity(0.55))
+        }
+        .shadow(color: c.glow ? Color.accentColor : .clear, radius: 3 * k)
+        .position(p)
+        .contentShape(Circle()).onTapGesture { tap(id) }
+        .accessibilityLabel(VitaButtonMapView.buttons[id]?.name ?? "")
     }
 
-    private func pill(_ id: Int32, x: CGFloat, y: CGFloat, w: CGFloat, h: CGFloat) -> some View {
-        let s = state(id)
-        return Capsule().fill(s.fill).overlay(Capsule().stroke(s.ring, lineWidth: 1.2))
-            .overlay(label(id, size: h * 0.55))
-            .frame(width: w, height: h).position(x: x, y: y)
-            .contentShape(Capsule()).onTapGesture { tap(id) }
-            .accessibilityLabel(VitaButtonMapView.buttons[id]?.name ?? "")
+    private func pill(_ id: Int32, at p: CGPoint, size: CGSize, k: CGFloat, text: String) -> some View {
+        let c = colors(id)
+        return VStack(spacing: 0.6 * k) {
+            Capsule().fill(c.fill).overlay(Capsule().stroke(c.ring, lineWidth: max(1, 0.35 * k)))
+                .overlay(text == "PS" ? Text("PS").font(.system(size: 2.6 * k, weight: .heavy)).foregroundStyle(.white.opacity(0.8)) : nil)
+                .frame(width: size.width, height: size.height)
+            if text != "PS" {
+                Text(text).font(.system(size: 1.9 * k, weight: .semibold)).foregroundStyle(.white.opacity(0.45)).fixedSize()
+            }
+        }
+        .shadow(color: c.glow ? Color.accentColor : .clear, radius: 3 * k)
+        .position(p)
+        .contentShape(Rectangle()).onTapGesture { tap(id) }
+        .accessibilityLabel(VitaButtonMapView.buttons[id]?.name ?? "")
     }
 
-    private func shoulder(_ id: Int32, x: CGFloat, w: CGFloat, h: CGFloat) -> some View {
-        let s = state(id)
-        return RoundedRectangle(cornerRadius: h * 0.06).fill(s.fill)
-            .overlay(RoundedRectangle(cornerRadius: h * 0.06).stroke(s.ring, lineWidth: 1.5))
-            .overlay(label(id, size: h * 0.07))
-            .frame(width: w * 0.2, height: h * 0.12).position(x: x, y: h * 0.07)
+    private func shoulder(_ id: Int32, rect: CGRect, k: CGFloat) -> some View {
+        let c = colors(id)
+        let shape = UnevenRoundedRectangle(topLeadingRadius: 2.5 * k, bottomLeadingRadius: 0.5 * k, bottomTrailingRadius: 0.5 * k, topTrailingRadius: 2.5 * k)
+        return shape.fill(c.fill).overlay(shape.stroke(c.ring, lineWidth: max(1, 0.35 * k)))
+            .overlay(Text(VitaButtonMapView.buttons[id]?.glyph ?? "").font(.system(size: 3 * k, weight: .bold)).foregroundStyle(.white.opacity(0.7)).offset(y: -0.8 * k))
+            .frame(width: rect.width, height: rect.height)
+            .shadow(color: c.glow ? Color.accentColor : .clear, radius: 3 * k)
+            .position(x: rect.midX, y: rect.midY)
             .contentShape(Rectangle()).onTapGesture { tap(id) }
             .accessibilityLabel(VitaButtonMapView.buttons[id]?.name ?? "")
     }
