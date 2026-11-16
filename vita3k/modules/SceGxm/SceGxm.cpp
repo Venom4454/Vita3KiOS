@@ -5350,7 +5350,9 @@ EXPORT(int, sceGxmTextureSetMinFilter, SceGxmTexture *texture, SceGxmTextureFilt
         return RET_ERROR(SCE_GXM_ERROR_INVALID_POINTER);
     }
 
-    if ((texture->type << 29) == SCE_GXM_TEXTURE_LINEAR_STRIDED) {
+    // Linear strided textures have a single filter: a min filter equal to the mag filter is accepted
+    // (Minecraft sets it on every launch), a different one is unsupported
+    if ((texture->type << 29) == SCE_GXM_TEXTURE_LINEAR_STRIDED && static_cast<uint32_t>(minFilter) != texture->mag_filter) {
         return RET_ERROR(SCE_GXM_ERROR_UNSUPPORTED);
     }
 
