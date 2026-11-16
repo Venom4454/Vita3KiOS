@@ -927,7 +927,7 @@ int TextureCache::cache_and_bind_sampler(const SceGxmTexture &gxm_texture, bool 
 
 } // namespace renderer
 
-bool TextureCache::native_pvrt(const SceGxmTexture &gxm_texture) const {
+bool renderer::TextureCache::native_pvrt(const SceGxmTexture &gxm_texture) const {
     if (!support_pvrt)
         return false;
     const SceGxmTextureBaseFormat base_format = gxm::get_base_format(gxm::get_format(gxm_texture));
