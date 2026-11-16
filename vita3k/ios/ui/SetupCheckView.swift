@@ -81,6 +81,11 @@ struct SetupCheckView: View {
             list.append(Item(title: "RAM helpers", value: "On, start with a game", level: .info, fix: String(cString: v3k_ram_helpers_status())))
         }
 
+        // Textures
+        let native = UserDefaults.standard.object(forKey: "v3k.nativeTextures") as? Bool ?? true
+        list.append(Item(title: "Compressed textures", value: native ? "Native (GPU)" : "Decompressed", level: native ? .good : .info,
+                         fix: native ? "" : "Turn Native compressed textures on in Settings for less memory and heat, unless a game looked wrong with it."))
+
         // Firmware
         if !model.hasFirmware {
             list.append(Item(title: "Firmware", value: "Missing", level: .problem, fix: "Install PSVUPDAT.PUP from Content Manager."))
