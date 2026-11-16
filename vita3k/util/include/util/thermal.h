@@ -97,16 +97,21 @@ inline void follow_render_qos(int &current) {
 // threads keep their class, so the frame rate holds while the heat drops. `current` starts at 0 (the
 // class set at thread start).
 inline void follow_game_qos(int &current, bool background_thread) {
-    // With "Keep the phone cool" the background threads stay off the top clocks all the time, not only
-    // once the phone is warm: the heat that never builds up needs no cooling down
-    // and if the phone still reaches "serious", the game's main threads step down one class too (default:
-    // still the performance cores, without the race to their top clocks)
-    const bool ease = keep_cool().load(std::memory_order_relaxed) || should_step_down();
+    // Background threads used to drop to utility (efficiency cores) whenever "Keep the phone cool" was
+    // on, even on a cold phone. Some games run their simulation there: Minecraft's world/server and
+    // chunk threads run below the default priority, so chunks loaded seconds late and fall damage and
+    // drowning were applied late. Now they keep the performance cores until the phone is actually hot:
+    //   cool: the game threads' class; warm (fair) or Low Power Mode: default class (performance cores
+    //   without the race to top clocks); serious (still heating with Keep cool): utility
     int wanted = 0;
-    if (background_thread && ease)
-        wanted = 2;
-    else if (!background_thread && phone_still_heating())
+    if (background_thread) {
+        if (phone_still_heating() || low_power_mode().load(std::memory_order_relaxed))
+            wanted = 2;
+        else if (should_step_down())
+            wanted = 1;
+    } else if (phone_still_heating()) {
         wanted = 1;
+    }
     if (wanted == current)
         return;
     const qos_class_t classes[] = { game_thread_qos(), QOS_CLASS_DEFAULT, QOS_CLASS_UTILITY };
