@@ -81,6 +81,7 @@ struct VitaButtonMapView: View {
                     }
                     if pad.connected {
                         Button {
+                            pad.lastPressed = nil
                             listening.toggle()
                         } label: {
                             Label(listening ? "Press a controller button…" : "Assign by pressing a button", systemImage: listening ? "dot.radiowaves.left.and.right" : "hand.tap")
@@ -116,6 +117,8 @@ struct VitaButtonMapView: View {
             guard listening, let pressed, let slot = selected else { return }
             assign(slot, pressed)
             listening = false
+            // cleared so the same button can be assigned again to another slot right after
+            pad.lastPressed = nil
         }
     }
 
