@@ -148,6 +148,9 @@ public:
     bool support_depth_linear_filtering = true;
     // powerVR only
     bool support_pvrt = false;
+    // Whether this texture is uploaded as PVRTC (support_pvrt): only PVRTC 1 (Metal has no PVRTC 2),
+    // square power-of-two swizzled textures of at least 8 texels (what Metal accepts)
+    bool native_pvrt(const SceGxmTexture &gxm_texture) const;
     // other color format
     bool support_x8d24 = false;
     bool support_e5rgb9 = false;

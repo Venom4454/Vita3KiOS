@@ -90,5 +90,6 @@ bool portrait_mode_enabled();
 
 // "Keep the phone cool" (Settings): game threads below the top priority, renderer threads too while hot
 bool keep_cool_enabled();
+bool native_textures_enabled();
 
 } // namespace ios

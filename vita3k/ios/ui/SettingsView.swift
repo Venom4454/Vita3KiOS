@@ -303,7 +303,7 @@ struct TouchControlsSection: View {
                 }
             }
             NavigationLink {
-                ControllerMappingView()
+                VitaButtonMapView()
             } label: {
                 Label("Button mapping", systemImage: "gamecontroller")
             }
@@ -364,6 +364,7 @@ struct EmulationSections: View {
     @EnvironmentObject var model: LibraryModel
     @AppStorage("v3k.fastCPU") private var fastCPU = false
     @AppStorage("v3k.keepCool") private var keepCool = true
+    @AppStorage("v3k.nativeTextures") private var nativeTextures = true
     @State private var confirmClearShaders = false
 
     private let resolutions: [Double] = [0.5, 0.75, 1, 1.5, 2, 3, 4]
@@ -449,6 +450,13 @@ struct EmulationSections: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Fast CPU")
                     Text("Faster maths shortcuts: less CPU work per frame, so more speed and less heat. Off by default: some games get trails, physics or animation glitches with it.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            Toggle(isOn: $nativeTextures) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Native compressed textures")
+                    Text("The GPU reads the PS Vita's compressed (PVRTC) textures as they are, instead of a copy 8 to 16 times larger: less memory, less stutter when new areas load, less heat. Turn off if textures look wrong in a game. Applies from the next game launch.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
             }

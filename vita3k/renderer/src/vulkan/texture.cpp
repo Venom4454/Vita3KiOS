@@ -329,8 +329,15 @@ bool VKTextureCache::init(const bool hashless_texture_cache, const fs::path &tex
     support_e5rgb9 = static_cast<bool>(e5rgb9_support.optimalTilingFeatures & vk::FormatFeatureFlagBits::eSampledImage);
     support_a2rgb10 = static_cast<bool>(a2rgb10_support.optimalTilingFeatures & vk::FormatFeatureFlagBits::eSampledImage);
 
-    // TODO: PVRTC is mapped to RGBA8, so keep software decoding until native PVRTC formats are mapped.
-    support_pvrt = false;
+    // PVRTC 1 sampled natively when the GPU has it (Apple GPUs: VK_IMG_format_pvrtc). PVRTC 2 and
+    // shapes Metal refuses keep the software decoder (native_pvrt()). V3K_NATIVE_PVRTC=0 turns it off
+    {
+        const char *env = getenv("V3K_NATIVE_PVRTC");
+        const bool allowed = !(env && env[0] == '0');
+        const vk::FormatProperties pvrtc_support = state.support_pvrtc ? state.physical_device.getFormatProperties(vk::Format::ePvrtc14BppUnormBlockIMG) : vk::FormatProperties{};
+        support_pvrt = allowed && state.support_pvrtc && static_cast<bool>(pvrtc_support.optimalTilingFeatures & vk::FormatFeatureFlagBits::eSampledImage);
+        LOG_INFO("PVRTC textures: {}", support_pvrt ? "native (GPU)" : (state.support_pvrtc ? "decompressed (turned off)" : "decompressed (GPU has no PVRTC)"));
+    }
 
     // check for dxt support
     const vk::FormatProperties dxt_support = state.physical_device.getFormatProperties(vk::Format::eBc1RgbaSrgbBlock);
@@ -435,7 +442,13 @@ void VKTextureCache::configure_texture(const SceGxmTexture &gxm_texture) {
     if (gxm::is_bcn_format(base_format) && !support_dxt)
         // texture will be decompressed
         vk_format = bcn_to_rgba8(vk_format);
-    if (gxm_texture.gamma_mode)
+    if (native_pvrt(gxm_texture)) {
+        const bool two_bpp = base_format == SCE_GXM_TEXTURE_BASE_FORMAT_PVRT2BPP;
+        if (gxm_texture.gamma_mode)
+            vk_format = two_bpp ? vk::Format::ePvrtc12BppSrgbBlockIMG : vk::Format::ePvrtc14BppSrgbBlockIMG;
+        else
+            vk_format = two_bpp ? vk::Format::ePvrtc12BppUnormBlockIMG : vk::Format::ePvrtc14BppUnormBlockIMG;
+    } else if (gxm_texture.gamma_mode)
         vk_format = linear_to_srgb(vk_format);
 
     current_texture->mip_count = mip_count;
@@ -447,6 +460,9 @@ void VKTextureCache::configure_texture(const SceGxmTexture &gxm_texture) {
         memory_needed += memory_needed / 2;
     if (is_cube)
         memory_needed *= 6;
+    if (native_pvrt(gxm_texture))
+        // the smallest levels are padded to 2x2 blocks (32 bytes) for the GPU, each 16-byte aligned
+        memory_needed += 48 * mip_count * (is_cube ? 6 : 1);
     current_texture->memory_needed = align(memory_needed, 16);
     if (memory_needed >= (24u << 20)) {
         // Rare and expensive: say which textures they are (a handful per run)
@@ -556,7 +572,34 @@ void VKTextureCache::upload_texture_impl(SceGxmTextureBaseFormat base_format, ui
 
     vk::DeviceSize upload_size;
     uint32_t buffer_height = height;
-    if (gxm::is_bcn_format(base_format)) {
+    if (base_format == SCE_GXM_TEXTURE_BASE_FORMAT_PVRT2BPP || base_format == SCE_GXM_TEXTURE_BASE_FORMAT_PVRT4BPP) {
+        // Native PVRTC (only these reach here undecoded): every level is at least 2x2 blocks for the GPU
+        // (8x8 texels at 4 bpp, 16x8 at 2 bpp) while the game's data for the smallest levels can be
+        // shorter: copy what the game has and pad with zeros
+        const bool two_bpp = base_format == SCE_GXM_TEXTURE_BASE_FORMAT_PVRT2BPP;
+        const uint32_t block_w = two_bpp ? 8 : 4;
+        const vk::DeviceSize gpu_size = (std::max(width, block_w * 2) / block_w) * (std::max(height, 8u) / 4) * 8;
+        const vk::DeviceSize guest_size = (align(width, block_w) / block_w) * (align(height, 4u) / 4) * 8;
+        if (staging_buffer.used_so_far + gpu_size > staging_buffer.buffer.size) {
+            LOG_ERROR("Staging buffer size left ({}) is too small for texture size {}!", staging_buffer.buffer.size - staging_buffer.used_so_far, gpu_size);
+            return;
+        }
+        uint8_t *dst = static_cast<uint8_t *>(staging_buffer.buffer.mapped_data) + staging_buffer.used_so_far;
+        memcpy(dst, text_data, std::min(gpu_size, guest_size));
+        if (gpu_size > guest_size)
+            memset(dst + guest_size, 0, gpu_size - guest_size);
+        const vk::BufferImageCopy pvrtc_region{
+            .bufferOffset = staging_buffer.used_so_far,
+            .bufferRowLength = 0,
+            .bufferImageHeight = 0,
+            .imageSubresource = { .aspectMask = vk::ImageAspectFlagBits::eColor, .mipLevel = mip_index, .baseArrayLayer = static_cast<uint32_t>(face), .layerCount = 1 },
+            .imageOffset = { 0, 0, 0 },
+            .imageExtent = { width, height, 1 }
+        };
+        cmd_buffer.copyBufferToImage(staging_buffer.buffer.buffer, image.image, vk::ImageLayout::eTransferDstOptimal, pvrtc_region);
+        staging_buffer.used_so_far += align(gpu_size, 16);
+        return;
+    } else if (gxm::is_bcn_format(base_format)) {
         upload_size = renderer::texture::get_compressed_size(base_format, pixels_per_stride, height);
         pixels_per_stride = align(pixels_per_stride, 4);
         buffer_height = align(buffer_height, 4);

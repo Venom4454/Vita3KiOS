@@ -152,6 +152,12 @@ void set_screen_always_on(bool on) {
     });
 }
 
+// "Native compressed textures" (Settings, on by default)
+bool native_textures_enabled() {
+    NSNumber *value = [NSUserDefaults.standardUserDefaults objectForKey:@"v3k.nativeTextures"];
+    return value ? value.boolValue : true;
+}
+
 // "Keep the phone cool" (Settings, on by default)
 bool keep_cool_enabled() {
     NSNumber *value = [NSUserDefaults.standardUserDefaults objectForKey:@"v3k.keepCool"];

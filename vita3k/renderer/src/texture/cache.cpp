@@ -461,8 +461,8 @@ void TextureCache::upload_texture(const SceGxmTexture &gxm_texture, MemState &me
         case SCE_GXM_TEXTURE_BASE_FORMAT_PVRT4BPP:
         case SCE_GXM_TEXTURE_BASE_FORMAT_PVRTII2BPP:
         case SCE_GXM_TEXTURE_BASE_FORMAT_PVRTII4BPP:
-            if (support_pvrt) {
-                LOG_INFO_ONCE("Your device support SCE_GXM_TEXTURE_BASE_FORMAT_PVRT");
+            if (native_pvrt(gxm_texture)) {
+                LOG_INFO_ONCE("PVRTC textures are sampled by the GPU as they are (no RGBA8 copy)");
                 break;
             }
             if (!is_swizzled)
@@ -926,3 +926,15 @@ int TextureCache::cache_and_bind_sampler(const SceGxmTexture &gxm_texture, bool 
 }
 
 } // namespace renderer
+
+bool TextureCache::native_pvrt(const SceGxmTexture &gxm_texture) const {
+    if (!support_pvrt)
+        return false;
+    const SceGxmTextureBaseFormat base_format = gxm::get_base_format(gxm::get_format(gxm_texture));
+    if (base_format != SCE_GXM_TEXTURE_BASE_FORMAT_PVRT2BPP && base_format != SCE_GXM_TEXTURE_BASE_FORMAT_PVRT4BPP)
+        return false;
+    if (gxm_texture.texture_type() != SCE_GXM_TEXTURE_SWIZZLED)
+        return false;
+    const uint32_t width = gxm::get_width(gxm_texture), height = gxm::get_height(gxm_texture);
+    return width == height && width >= 8 && (width & (width - 1)) == 0;
+}

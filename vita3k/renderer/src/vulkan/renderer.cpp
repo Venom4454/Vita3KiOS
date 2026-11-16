@@ -768,6 +768,8 @@ bool VKState::create(std::unique_ptr<renderer::State> &state, const Config &conf
             // knowing when a frame reached the screen (V-Sync off and TV mode never wait for it)
             { VK_KHR_PRESENT_ID_EXTENSION_NAME, &support_present_id },
             { VK_KHR_PRESENT_WAIT_EXTENSION_NAME, &support_present_wait },
+            // PS Vita PVRTC textures sampled as they are (no 8-16x larger RGBA8 copy)
+            { VK_IMG_FORMAT_PVRTC_EXTENSION_NAME, &support_pvrtc },
             { vk::KHRGetMemoryRequirements2ExtensionName, &temp_bool },
             // can be used by vma to improve performance
             { vk::KHRDedicatedAllocationExtensionName, &support_dedicated_allocations },

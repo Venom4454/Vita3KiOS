@@ -133,6 +133,8 @@ struct VKState : public renderer::State {
     // VK_KHR_present_id + VK_KHR_present_wait: the screen renderer can tell how many frames are still
     // waiting to be shown, instead of assuming a 60 Hz screen
     bool support_present_wait = false;
+    // VK_IMG_format_pvrtc: the GPU samples PVRTC (Apple GPUs through MoltenVK)
+    bool support_pvrtc = false;
     LinuxSurfaceType linux_surface_type = LinuxSurfaceType::Unknown;
 
 #ifdef __ANDROID__
