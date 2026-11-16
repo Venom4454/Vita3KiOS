@@ -280,7 +280,10 @@ void call_import(EmuEnvState &emuenv, CPUState &cpu, uint32_t nid, SceUID thread
         if ((++calls & 255) == 0) {
             const ThreadStatePtr self = emuenv.kernel.get_thread(thread_id);
             if (self)
-                thermal::follow_game_qos(thermal_qos, !feeds_audio && self->get_priority() > SCE_KERNEL_GAME_DEFAULT_PRIORITY_ACTUAL);
+                // Background: clearly below the default priority (streaming, logging, loaders). Threads just
+                // below it do real game work: Minecraft's Server and Chunk update threads run at 161
+                // (default 160) and were stepped down to the efficiency cores with the helpers
+                thermal::follow_game_qos(thermal_qos, !feeds_audio && self->get_priority() >= SCE_KERNEL_GAME_DEFAULT_PRIORITY_ACTUAL + 16);
         }
     }
 #endif

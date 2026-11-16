@@ -20,6 +20,8 @@
 #include <atomic>
 
 #if defined(VITA3K_PLATFORM_IOS)
+#include <mach/mach.h>
+#include <mach/thread_policy.h>
 #include <pthread.h>
 #include <sys/qos.h>
 #endif
@@ -77,6 +79,15 @@ inline bool phone_still_heating() {
     return keep_cool().load(std::memory_order_relaxed) && thermal_level().load(std::memory_order_relaxed) >= 2;
 }
 
+// Game threads ask for precise timers (latency tier 0): iOS otherwise lets their sleeps end late to
+// save power (timer coalescing, more slack the lower the class). Logs showed guest sleeps running
+// 15-35% long (368 us asked, 488 us slept), which slows every worker loop that paces itself with
+// short sleeps. Setting a QoS class resets the tier, so it is set again after each change
+inline void precise_timers_self() {
+    thread_latency_qos_policy_data_t policy{ LATENCY_QOS_TIER_0 };
+    thread_policy_set(pthread_mach_thread_np(pthread_self()), THREAD_LATENCY_QOS_POLICY, reinterpret_cast<thread_policy_t>(&policy), THREAD_LATENCY_QOS_POLICY_COUNT);
+}
+
 inline void follow_render_qos(int &current) {
     int wanted = 0;
     if (phone_still_heating())
@@ -127,6 +138,7 @@ inline void follow_game_qos(int &current, bool background_thread) {
         return;
     }
     pthread_set_qos_class_self_np(classes[wanted], 0);
+    precise_timers_self();
     current = wanted + 1;
 }
 
