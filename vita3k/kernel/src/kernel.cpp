@@ -79,6 +79,7 @@ static int SDLCALL thread_function(void *data) {
     // scheduler park them on efficiency cores (default QoS). With "Keep the phone cool" one step below
     // the top class (see util/thermal.h).
     pthread_set_qos_class_self_np(thermal::game_thread_qos(), 0);
+    thread->host_thread = pthread_mach_thread_np(pthread_self());
 #endif
 #ifdef TRACY_ENABLE
     if (!thread->name.empty()) {

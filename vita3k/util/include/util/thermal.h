@@ -97,26 +97,37 @@ inline void follow_render_qos(int &current) {
 // threads keep their class, so the frame rate holds while the heat drops. `current` starts at 0 (the
 // class set at thread start).
 inline void follow_game_qos(int &current, bool background_thread) {
-    // Background threads used to drop to utility (efficiency cores) whenever "Keep the phone cool" was
-    // on, even on a cold phone. Some games run their simulation there: Minecraft's world/server and
-    // chunk threads run below the default priority, so chunks loaded seconds late and fall damage and
-    // drowning were applied late. Now they keep the performance cores until the phone is actually hot:
-    //   cool: the game threads' class; warm (fair) or Low Power Mode: default class (performance cores
-    //   without the race to top clocks); serious (still heating with Keep cool): utility
+    // Classes, fastest first: user-interactive (top clocks), user-initiated (performance cores without
+    // the race to top clocks), default, utility (efficiency cores welcome).
+    // Keep the phone cool used to hold every game thread one class down even on a cold phone, and its
+    // background threads on utility: Minecraft's world and chunk threads (below default priority) fell
+    // behind (chunks late, damage applied late). Now the steps follow the phone's actual heat:
+    //   main threads:       cool: top; warm (fair): user-initiated; serious: default
+    //   background threads: cool: user-initiated; warm: default; serious or Low Power Mode: utility
+    // Without Keep the phone cool everything runs at the top class (Low Power Mode still steps down).
+    static constexpr qos_class_t classes[] = { QOS_CLASS_USER_INTERACTIVE, QOS_CLASS_USER_INITIATED, QOS_CLASS_DEFAULT, QOS_CLASS_UTILITY };
+    const bool cool_mode = keep_cool().load(std::memory_order_relaxed);
+    const bool lpm = low_power_mode().load(std::memory_order_relaxed);
+    const int heat = thermal_level().load(std::memory_order_relaxed); // 0 nominal, 1 fair, 2 serious, 3 critical
     int wanted = 0;
-    if (background_thread) {
-        if (phone_still_heating() || low_power_mode().load(std::memory_order_relaxed))
-            wanted = 2;
-        else if (should_step_down())
-            wanted = 1;
-    } else if (phone_still_heating()) {
-        wanted = 1;
+    if (cool_mode) {
+        if (background_thread)
+            wanted = (heat >= 2 || lpm) ? 3 : heat >= 1 ? 2
+                                                        : 1;
+        else
+            wanted = heat >= 2 ? 2 : (heat >= 1 || lpm) ? 1
+                                                        : 0;
+    } else if (lpm) {
+        wanted = background_thread ? 2 : 1;
     }
-    if (wanted == current)
+    // `current` is 0 at thread start (class game_thread_qos() set then), otherwise the class index + 1
+    const int set_now = current > 0 ? current - 1 : (game_thread_qos() == QOS_CLASS_USER_INITIATED ? 1 : 0);
+    if (wanted == set_now) {
+        current = wanted + 1;
         return;
-    const qos_class_t classes[] = { game_thread_qos(), QOS_CLASS_DEFAULT, QOS_CLASS_UTILITY };
+    }
     pthread_set_qos_class_self_np(classes[wanted], 0);
-    current = wanted;
+    current = wanted + 1;
 }
 
 // Background workers (shader compilation), called once per job. They were started from the main

@@ -21,6 +21,23 @@
 #include <cstdint>
 
 // How frames reach the screen, set by the platform layer and read by the screen renderer
+// Guest sleeps (sceKernelDelayThread): how long games asked to sleep and how long they did, so a
+// log shows whether short sleeps run long on the phone (timer coalescing slows worker loops)
+namespace delay_stats {
+inline std::atomic<uint64_t> &calls() {
+    static std::atomic<uint64_t> v{ 0 };
+    return v;
+}
+inline std::atomic<uint64_t> &asked_us() {
+    static std::atomic<uint64_t> v{ 0 };
+    return v;
+}
+inline std::atomic<uint64_t> &slept_us() {
+    static std::atomic<uint64_t> v{ 0 };
+    return v;
+}
+} // namespace delay_stats
+
 namespace presentation {
 
 // The game is shown on a TV or other display (iOS TV mode): every frame queued for the display adds

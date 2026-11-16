@@ -58,13 +58,16 @@
 #include <os/proc.h>
 #include <sys/mman.h>
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <cstdint>
 #include <cstdlib>
+#include <map>
 #include <mutex>
 #include <string>
 #include <thread>
+#include <vector>
 
 #include <fmt/format.h>
 #include <spdlog/spdlog.h>
@@ -290,6 +293,7 @@ int main(int argc, char *argv[]) {
             double fps_total = 0.0, fps_min = 0.0, fps_max = 0.0;
             int fps_samples = 0, hot_samples = 0, stalls = 0, memory_samples = 0;
             uint64_t screen_shown_at_log = presentation::counters().shown.load();
+            std::map<SceUID, uint64_t> thread_cpu_at_log; // per guest thread, host CPU time in microseconds
             uint64_t screen_skipped_at_log = presentation::counters().skipped.load();
             uint64_t screen_wait_at_log = presentation::counters().wait_ns.load();
             uint64_t least_memory = os_proc_available_memory();
@@ -347,6 +351,45 @@ int main(int argc, char *argv[]) {
                         screen_text, session_paused() ? " (paused)" : "", thermal::phone_is_hot() ? ", phone hot" : "",
                         thermal::low_power_mode() ? ", Low Power Mode" : "");
                     record_status(fps);
+                    // Which game threads used the CPU and how much (of one core): a thread near 100% is
+                    // limited by CPU speed, one far below is waiting on something. Minecraft's world
+                    // threads falling behind showed only as late chunks; this names them
+                    if (!session_paused() && !ios::app_in_background()) {
+                        std::vector<std::pair<double, std::string>> busy;
+                        {
+                            std::lock_guard<std::mutex> guard(emuenv->kernel.mutex);
+                            for (const auto &[id, thread] : emuenv->kernel.threads) {
+                                const uint32_t port = thread ? thread->host_thread.load() : 0;
+                                if (!port)
+                                    continue;
+                                thread_basic_info_data_t info{};
+                                mach_msg_type_number_t count = THREAD_BASIC_INFO_COUNT;
+                                if (thread_info(port, THREAD_BASIC_INFO, reinterpret_cast<thread_info_t>(&info), &count) != KERN_SUCCESS)
+                                    continue;
+                                const uint64_t cpu_us = static_cast<uint64_t>(info.user_time.seconds + info.system_time.seconds) * 1000000
+                                    + info.user_time.microseconds + info.system_time.microseconds;
+                                auto &last = thread_cpu_at_log[id];
+                                const double share = last && cpu_us >= last ? static_cast<double>(cpu_us - last) / 1e6 / std::max(seconds, 0.001) : 0.0;
+                                last = cpu_us;
+                                if (share >= 0.05)
+                                    busy.emplace_back(share, fmt::format("{} {:.0f}% (prio {})", thread->name.empty() ? std::to_string(id) : thread->name, share * 100, thread->get_priority()));
+                            }
+                        }
+                        std::sort(busy.begin(), busy.end(), [](const auto &a, const auto &b) { return a.first > b.first; });
+                        if (busy.size() > 8)
+                            busy.resize(8);
+                        {
+                            const uint64_t calls = delay_stats::calls().exchange(0), asked = delay_stats::asked_us().exchange(0), slept = delay_stats::slept_us().exchange(0);
+                            if (calls)
+                                busy.emplace_back(-1.0, fmt::format("sleeps: {} ({:.0f}/s), asked {} us, slept {} us on average", calls, calls / std::max(seconds, 0.001), asked / calls, slept / calls));
+                        }
+                        if (!busy.empty()) {
+                            std::string text;
+                            for (const auto &entry : busy)
+                                text += (text.empty() ? "" : ", ") + entry.second;
+                            LOG_INFO("Watchdog: busiest game threads: {}", text);
+                        }
+                    }
                     if (!session_paused() && !ios::app_in_background() && fps > 0.0) {
                         fps_total += fps;
                         fps_min = fps_samples == 0 ? fps : std::min(fps_min, fps);

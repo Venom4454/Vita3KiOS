@@ -24,6 +24,7 @@
 #include <mem/ptr.h>
 
 #include <algorithm>
+#include <atomic>
 #include <condition_variable>
 #include <initializer_list>
 #include <list>
@@ -63,6 +64,8 @@ struct ThreadState {
     const SceUID id;
     const std::string name;
     const Address entry_point;
+    // iOS: the host thread running it (mach port), for the per-thread CPU report; 0 until it starts
+    std::atomic<uint32_t> host_thread{ 0 };
     // What thread info reports, the creation attributes and THREAD_ATTR_USER
     const SceUInt32 attr;
     // The stack size, a whole number of pages

@@ -28,6 +28,7 @@
 #include <thread>
 #include <utility>
 
+#include <util/presentation.h>
 #include <util/tracy.h>
 TRACY_MODULE_NAME(SceThreadmgr);
 
@@ -1374,8 +1375,13 @@ static int delay_thread(KernelState &kernel, SceUID thread_id, SceUInt delay_us)
     // tiny delays otherwise spin a core on the phone.
     delay_us = std::max(delay_us, 200u);
     const ThreadStatePtr thread = kernel.get_thread(thread_id);
-    const Deadline deadline = std::chrono::steady_clock::now() + std::chrono::microseconds(delay_us);
-    return guest_result(thread->delay_until(deadline, false));
+    const auto start = std::chrono::steady_clock::now();
+    const Deadline deadline = start + std::chrono::microseconds(delay_us);
+    const auto result = guest_result(thread->delay_until(deadline, false));
+    delay_stats::calls()++;
+    delay_stats::asked_us() += delay_us;
+    delay_stats::slept_us() += std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - start).count();
+    return result;
 }
 
 static int delay_thread_cb(KernelState &kernel, SceUID thread_id, SceUInt delay_us) {

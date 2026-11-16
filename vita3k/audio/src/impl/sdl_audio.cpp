@@ -159,8 +159,12 @@ void SDLAudioAdapter::audio_output(AudioOutPort &out_port, const void *buffer) {
     // one wake only let the game put one buffer per device refill, and on iOS (smaller, more frequent
     // refills than a game's buffer) games ran their dialogue up to 2x too fast (Dragon Ball Z: Battle of
     // Z, Dynasty Warriors 8) while the queued sound fell further and further behind.
-    const int threshold = std::max(get_threshold_samples(device_buffer_samples),
-        static_cast<int>(static_cast<uint64_t>(out_port.len_microseconds) * std::max(dst_spec.freq, 1) / 1'000'000ULL));
+    // At least 48 ms stays queued: with only four of the phone's small device buffers (~20-40 ms), a
+    // game audio thread held up briefly by a busy CPU let the queue run dry, and the sound crackled
+    // (Minecraft with every core busy). The pacing is the same, the cushion is bigger
+    const int cushion = static_cast<int>(48'000ULL * std::max(dst_spec.freq, 1) / 1'000'000ULL);
+    const int threshold = std::max({ get_threshold_samples(device_buffer_samples), cushion,
+        static_cast<int>(static_cast<uint64_t>(out_port.len_microseconds) * std::max(dst_spec.freq, 1) / 1'000'000ULL) });
     // never longer than a few buffers in all: a device that stopped consuming (closed off screen, iOS
     // interrupting the audio) must not hang the game's audio thread
     const auto give_up = std::chrono::steady_clock::now() + std::chrono::microseconds(out_port.len_microseconds * 4 + 20'000);
