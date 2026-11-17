@@ -33,6 +33,7 @@
 #include "core/frontend/input.h"
 #include "core/hle/service/am/am.h"
 #include "core/hle/service/fs/archive.h"
+#include "core/hle/service/service.h"
 #include "core/loader/loader.h"
 #include "core/loader/smdh.h"
 #include "input_common/main.h"
@@ -415,6 +416,15 @@ bool azh_init(const char* user_dir, const azh_host* host) {
     Settings::values.portrait_layout_option = Settings::PortraitLayoutOption::PortraitTopFullWidth;
     Settings::values.resolution_factor = 2;
     Settings::values.region_value = Settings::REGION_VALUE_AUTO_SELECT;
+
+    // Every system module HLE (the core looks each one up by name: a missing entry ended the boot
+    // with std::out_of_range)
+    for (const auto& service_module : Service::service_module_map) {
+        Settings::values.lle_modules.emplace(service_module.name, false);
+    }
+    for (auto& name : Settings::values.camera_name) {
+        name = "blank";
+    }
 
     InputCommon::Init();
     Input::RegisterFactory<Input::ButtonDevice>("hinoki", std::make_shared<ButtonFactory>());

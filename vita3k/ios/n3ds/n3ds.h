@@ -40,6 +40,9 @@ char *v3k_n3ds_status(void);
 // separated without brackets. Empty when there are none. Free with v3k_free_string
 char *v3k_n3ds_apps_json(void);
 bool v3k_n3ds_remove(const char *id);
+// Downloads box art (GameTDB) for games that have none yet; slow, run off the main thread. true when
+// some was added
+bool v3k_n3ds_fetch_art(void);
 // The file a game runs from, or NULL. Free with v3k_free_string
 char *v3k_n3ds_game_path(const char *id);
 

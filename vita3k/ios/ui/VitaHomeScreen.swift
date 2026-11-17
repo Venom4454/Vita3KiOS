@@ -1242,6 +1242,12 @@ enum VitaImageCache {
     }()
     private static let missing = NSCache<NSString, NSNumber>()
 
+    /// New pictures appeared on disk (3DS box art downloaded): read everything again
+    static func forgetAll() {
+        cache.removeAllObjects()
+        missing.removeAllObjects()
+    }
+
     static func image(atPath path: String) -> UIImage? {
         let key = path as NSString
         if let image = cache.object(forKey: key) { return image }

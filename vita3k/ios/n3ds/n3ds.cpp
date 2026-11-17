@@ -25,6 +25,7 @@
 #include <util/log.h>
 
 #include <fmt/format.h>
+#include <stb_image.h>
 #include <stb_image_write.h>
 
 #include <dlfcn.h>
@@ -349,6 +350,143 @@ void write_art(const fs::path &folder, const std::array<uint8_t, 48 * 48 * 4> &i
     stbi_write_png((folder / "sce_sys/pic0.png").c_str(), W, H, 4, art.data(), W * 4);
 }
 
+// ---- Box art from GameTDB (art.gametdb.com) for the LiveArea ----
+// The product code (CTR-P-BMAE) from the game's NCCH header: its last 4 letters are GameTDB's ID
+std::string product_code(const fs::path &file) {
+    std::ifstream in(file, std::ios::binary);
+    std::array<uint8_t, 0x200> header{};
+    if (!in.read(reinterpret_cast<char *>(header.data()), header.size()))
+        return {};
+    uint64_t ncch = 0;
+    if (std::memcmp(&header[0x100], "NCSD", 4) == 0) {
+        ncch = static_cast<uint64_t>(header[0x120] | (header[0x121] << 8) | (header[0x122] << 16) | (static_cast<uint32_t>(header[0x123]) << 24)) * 0x200;
+        in.seekg(static_cast<std::streamoff>(ncch));
+        if (!in.read(reinterpret_cast<char *>(header.data()), header.size()))
+            return {};
+    }
+    if (std::memcmp(&header[0x100], "NCCH", 4) != 0)
+        return {};
+    std::string code(reinterpret_cast<const char *>(&header[0x150]), 16);
+    code = code.substr(0, code.find('\0'));
+    const auto dash = code.find_last_of('-');
+    std::string id = dash == std::string::npos ? code : code.substr(dash + 1);
+    if (id.size() != 4 || !std::all_of(id.begin(), id.end(), [](unsigned char c) { return std::isalnum(c); }))
+        return {};
+    return id;
+}
+
+// The cover blurred and darkened behind it, the cover itself in the middle (840x500, the LiveArea's
+// background area)
+bool write_cover_art(const fs::path &folder, const std::string &image_data) {
+    int w = 0, h = 0, channels = 0;
+    stbi_uc *cover = stbi_load_from_memory(reinterpret_cast<const stbi_uc *>(image_data.data()), static_cast<int>(image_data.size()), &w, &h, &channels, 4);
+    if (!cover || w < 32 || h < 32) {
+        if (cover)
+            stbi_image_free(cover);
+        return false;
+    }
+    constexpr int W = 840, H = 500;
+    const auto sample = [&](float x, float y, int c) {
+        const float fx = std::clamp(x, 0.f, w - 1.f), fy = std::clamp(y, 0.f, h - 1.f);
+        const int x0 = static_cast<int>(fx), y0 = static_cast<int>(fy);
+        const int x1 = std::min(x0 + 1, w - 1), y1 = std::min(y0 + 1, h - 1);
+        const float ax = fx - x0, ay = fy - y0;
+        const auto at = [&](int px, int py) { return static_cast<float>(cover[(py * w + px) * 4 + c]); };
+        return (at(x0, y0) * (1 - ax) + at(x1, y0) * ax) * (1 - ay) + (at(x0, y1) * (1 - ax) + at(x1, y1) * ax) * ay;
+    };
+    // backdrop: fill the area, shrink, blur, blow back up
+    constexpr int SW = 84, SH = 50;
+    const float fill = std::max(static_cast<float>(W) / w, static_cast<float>(H) / h);
+    std::vector<float> small(SW * SH * 3);
+    for (int y = 0; y < SH; y++)
+        for (int x = 0; x < SW; x++)
+            for (int c = 0; c < 3; c++) {
+                const float sx = ((x + 0.5f) * W / SW - W / 2.f) / fill + w / 2.f;
+                const float sy = ((y + 0.5f) * H / SH - H / 2.f) / fill + h / 2.f;
+                small[(y * SW + x) * 3 + c] = sample(sx, sy, c);
+            }
+    for (int pass = 0; pass < 3; pass++) {
+        std::vector<float> blurred(small.size());
+        for (int y = 0; y < SH; y++)
+            for (int x = 0; x < SW; x++)
+                for (int c = 0; c < 3; c++) {
+                    float sum = 0;
+                    int count = 0;
+                    for (int dy = -2; dy <= 2; dy++)
+                        for (int dx = -2; dx <= 2; dx++) {
+                            sum += small[(std::clamp(y + dy, 0, SH - 1) * SW + std::clamp(x + dx, 0, SW - 1)) * 3 + c];
+                            count++;
+                        }
+                    blurred[(y * SW + x) * 3 + c] = sum / count;
+                }
+        small.swap(blurred);
+    }
+    std::vector<uint8_t> art(W * H * 4);
+    for (int y = 0; y < H; y++)
+        for (int x = 0; x < W; x++) {
+            const float fx = std::clamp((x + 0.5f) * SW / W - 0.5f, 0.f, SW - 1.f), fy = std::clamp((y + 0.5f) * SH / H - 0.5f, 0.f, SH - 1.f);
+            const int x0 = static_cast<int>(fx), y0 = static_cast<int>(fy), x1 = std::min(x0 + 1, SW - 1), y1 = std::min(y0 + 1, SH - 1);
+            const float ax = fx - x0, ay = fy - y0;
+            for (int c = 0; c < 3; c++) {
+                const float v = (small[(y0 * SW + x0) * 3 + c] * (1 - ax) + small[(y0 * SW + x1) * 3 + c] * ax) * (1 - ay)
+                    + (small[(y1 * SW + x0) * 3 + c] * (1 - ax) + small[(y1 * SW + x1) * 3 + c] * ax) * ay;
+                art[(y * W + x) * 4 + c] = static_cast<uint8_t>(std::clamp(v * 0.45f, 0.f, 255.f));
+            }
+            art[(y * W + x) * 4 + 3] = 255;
+        }
+    // the cover, 420 tall, with a soft shadow
+    const float scale = std::min(420.f / h, 760.f / w);
+    const int cw = static_cast<int>(w * scale), ch = static_cast<int>(h * scale);
+    const int left = (W - cw) / 2, top = (H - ch) / 2 - 10;
+    for (int y = -14; y < ch + 14; y++)
+        for (int x = -14; x < cw + 14; x++) {
+            const int px = left + x + 6, py = top + y + 8;
+            if (px < 0 || py < 0 || px >= W || py >= H)
+                continue;
+            const float dx = std::max({ 0.f, -static_cast<float>(x), static_cast<float>(x - cw + 1) });
+            const float dy = std::max({ 0.f, -static_cast<float>(y), static_cast<float>(y - ch + 1) });
+            const float shade = 0.55f + 0.45f * std::min(1.f, std::hypot(dx, dy) / 14.f);
+            for (int c = 0; c < 3; c++)
+                art[(py * W + px) * 4 + c] = static_cast<uint8_t>(art[(py * W + px) * 4 + c] * shade);
+        }
+    for (int y = 0; y < ch; y++)
+        for (int x = 0; x < cw; x++)
+            for (int c = 0; c < 3; c++)
+                art[((top + y) * W + left + x) * 4 + c] = static_cast<uint8_t>(std::clamp(sample((x + 0.5f) / scale - 0.5f, (y + 0.5f) / scale - 0.5f, c), 0.f, 255.f));
+    stbi_image_free(cover);
+
+    std::error_code ec;
+    fs::create_directories(folder / "sce_sys/livearea/contents", ec);
+    return stbi_write_png((folder / "sce_sys/livearea/contents/bg0.png").c_str(), W, H, 4, art.data(), W * 4) != 0;
+}
+
+// Looks for the game's box art (region from the ID's last letter, then the others). true: art saved
+bool fetch_cover(const fs::path &folder, const std::string &id) {
+    std::vector<std::string> regions;
+    switch (id.back()) {
+    case 'E': regions = { "US", "EN" }; break;
+    case 'P': regions = { "EN", "FR", "DE", "ES", "IT", "US" }; break;
+    case 'J': regions = { "JA" }; break;
+    case 'K': regions = { "KO" }; break;
+    case 'D': regions = { "DE", "EN" }; break;
+    case 'F': regions = { "FR", "EN" }; break;
+    case 'S': regions = { "ES", "EN" }; break;
+    case 'I': regions = { "IT", "EN" }; break;
+    default: regions = { "US", "EN", "JA" }; break;
+    }
+    for (const char *kind : { "coverHQ", "cover" }) {
+        for (const auto &region : regions) {
+            std::string data, error;
+            const std::string url = fmt::format("https://art.gametdb.com/3ds/{}/{}/{}.jpg", kind, region, id);
+            if (ios::download(url, data, error) && data.size() > 1024 && write_cover_art(folder, data)) {
+                LOG_INFO("3DS: box art for {} from {}", id, url);
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
 // Records a game in the library (info.txt plus art)
 void add_to_library(const std::string &id, const std::string &kind, const fs::path &file, uint64_t title_id, const std::string &info_json) {
     const fs::path folder = library_dir() / id;
@@ -363,6 +501,9 @@ void add_to_library(const std::string &id, const std::string &kind, const fs::pa
     fields["title"] = title;
     fields["publisher"] = json_field(info_json, "publisher");
     fields["regions"] = json_field(info_json, "regions");
+    const fs::path code_file = kind == "installed" ? fs::path(take(g_core.azh_installed_title_path(title_id))) : file;
+    if (kind != "homebrew")
+        fields["product"] = product_code(code_file);
     fields.try_emplace("last_played", "0");
     fields.try_emplace("play_time", "0");
     write_fields(folder / "info.txt", fields);
@@ -647,6 +788,50 @@ char *v3k_n3ds_game_path(const char *id) {
     }
     const auto file = fields.find("file");
     return file != fields.end() && !file->second.empty() ? dup_string(file->second) : nullptr;
+}
+
+bool v3k_n3ds_fetch_art(void) {
+    std::vector<fs::path> folders;
+    {
+        std::lock_guard lock(g_mutex);
+        std::error_code ec;
+        for (const auto &entry : fs::directory_iterator(library_dir(), ec)) {
+            if (entry.is_directory())
+                folders.push_back(entry.path());
+        }
+    }
+    const auto now = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+    bool added = false;
+    for (const auto &folder : folders) {
+        Fields fields;
+        {
+            std::lock_guard lock(g_mutex);
+            fields = read_fields(folder / "info.txt");
+        }
+        // done, homebrew, or looked for in the last 3 days
+        if (fields["art"] == "online" || fields["kind"] == "homebrew" || now - std::atoll(fields["art_checked"].c_str()) < 3 * 24 * 3600)
+            continue;
+        std::string id = fields["product"];
+        if (id.empty()) {
+            fs::path file = fields["file"];
+            if (fields["kind"] == "installed" && load_core())
+                file = take(g_core.azh_installed_title_path(std::strtoull(fields["title_id"].c_str(), nullptr, 16)));
+            id = product_code(file);
+        }
+        const bool found = !id.empty() && fetch_cover(folder, id);
+        std::lock_guard lock(g_mutex);
+        fields = read_fields(folder / "info.txt");
+        if (fields.empty())
+            continue; // removed meanwhile
+        fields["product"] = id;
+        if (found)
+            fields["art"] = "online";
+        else
+            fields["art_checked"] = std::to_string(now);
+        write_fields(folder / "info.txt", fields);
+        added |= found;
+    }
+    return added;
 }
 
 bool v3k_n3ds_remove(const char *id) {

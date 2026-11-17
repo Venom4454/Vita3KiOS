@@ -234,6 +234,7 @@ final class LibraryModel: ObservableObject {
             let sorted = decoded.sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
             if sorted != apps { apps = sorted }
         }
+        fetch3DSArt()
         if let json = takeString(v3k_storage_info_json()), let data = json.data(using: .utf8),
            let decoded = try? JSONDecoder().decode(StorageInfo.self, from: data) {
             storage = decoded
@@ -241,6 +242,24 @@ final class LibraryModel: ObservableObject {
         if let json = takeString(v3k_settings_json()), let data = json.data(using: .utf8),
            let decoded = try? JSONDecoder().decode(EmulatorSettings.self, from: data) {
             settings = decoded
+        }
+    }
+
+    private var fetchingArt = false
+
+    /// Box art for 3DS games (GameTDB), in the background; the home screen redraws when some arrives
+    func fetch3DSArt() {
+        guard !fetchingArt, apps.contains(where: { $0.is3DS }) else { return }
+        fetchingArt = true
+        Task.detached(priority: .utility) {
+            let added = v3k_n3ds_fetch_art()
+            await MainActor.run {
+                self.fetchingArt = false
+                if added {
+                    VitaImageCache.forgetAll()
+                    self.objectWillChange.send()
+                }
+            }
         }
     }
 
