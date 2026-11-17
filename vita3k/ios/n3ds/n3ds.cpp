@@ -532,11 +532,15 @@ bool import_file(const fs::path &path, const std::function<void(float)> &progres
 
     // Cartridge dumps and homebrew: kept as files in 3DS/games
     fs::path dest = games_dir() / path.filename();
+    bool moved = false;
     if (fs::equivalent(path, dest, ec)) {
         // already there
     } else if (inside(path, fs::path(ios::get_documents_path()))) {
-        fs::rename(path, dest, ec); // the app's own folder (Import): move, don't copy
-        if (ec && !copy_with_progress(path, dest, report, 0, info.encrypted ? 50.f : 100.f)) {
+        // the app's own folder (Import): move, don't copy
+        fs::rename(path, dest, ec);
+        moved = !ec;
+        if (!moved && !copy_with_progress(path, dest, report, 0, info.encrypted ? 50.f : 100.f)) {
+            fs::remove(dest, ec);
             result = "The game could not be copied (is there enough free space?).";
             return false;
         }
@@ -545,23 +549,32 @@ bool import_file(const fs::path &path, const std::function<void(float)> &progres
         result = "The game could not be copied (is there enough free space?).";
         return false;
     }
+    // On failure the player's file goes back where it was (or the copy is removed)
+    const auto undo = [&] {
+        std::error_code undo_ec;
+        if (moved)
+            fs::rename(dest, path, undo_ec);
+        else if (!fs::equivalent(path, dest, undo_ec))
+            fs::remove(dest, undo_ec);
+    };
     if (info.encrypted) {
         const std::string error = decrypt_in_place(dest, keys.keys, keys.seeds,
             [&](uint64_t done, uint64_t total) { report(50 + 50.f * static_cast<float>(done) / static_cast<float>(std::max<uint64_t>(total, 1))); });
         if (!error.empty()) {
-            fs::remove(dest, ec);
+            // (keys are checked before anything is written, so the file is as it was)
+            undo();
             result = "This game could not be decrypted: " + error + ".";
             return false;
         }
     }
     const std::string json = take(g_core.azh_game_info_json(dest.c_str()));
     if (json_field(json, "ok") != "true") {
-        fs::remove(dest, ec);
+        undo();
         result = "This is not a 3DS game Hinoki can run.";
         return false;
     }
     if (json_field(json, "encrypted") == "true") {
-        fs::remove(dest, ec);
+        undo();
         result = "This game is still encrypted: add your keys (Settings › 3DS › Keys) and import it again.";
         return false;
     }

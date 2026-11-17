@@ -283,11 +283,8 @@ void EmulationThread(std::string path, azh_event_fn events, void* context) {
 
     Frontend::RegisterDefaultApplets(system);
 
-    Core::System::ResultStatus result;
-    {
-        std::scoped_lock lock{g_window_mutex};
-        result = system.Load(*g_window, path);
-    }
+    // (the window lives until this thread has ended: no lock, so the UI thread never waits on a boot)
+    const Core::System::ResultStatus result = system.Load(*g_window, path);
     if (result != Core::System::ResultStatus::Success) {
         LOG_CRITICAL(Frontend, "Load failed: {}", static_cast<int>(result));
         send(AZH_EVENT_ERROR, static_cast<int>(result), 0,
