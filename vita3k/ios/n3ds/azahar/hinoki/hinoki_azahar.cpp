@@ -8,6 +8,7 @@
 #include <condition_variable>
 #include <cstdlib>
 #include <cstring>
+#include <limits>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -36,6 +37,8 @@
 #include "core/hle/service/service.h"
 #include "core/loader/loader.h"
 #include "core/loader/smdh.h"
+#include "core/savestate.h"
+#include "core/hle/kernel/kernel.h"
 #include "input_common/main.h"
 #include "video_core/gpu.h"
 #include "video_core/rasterizer_interface.h"
@@ -226,6 +229,10 @@ std::mutex g_pause_mutex;
 std::condition_variable g_pause_cv;
 std::atomic<double> g_fps{0.0};
 std::atomic<double> g_speed{0.0};
+std::atomic<u64> g_program_id{0};
+// A save state asked for by the player: 0 none, 1 save, 2 load (done by the emulation thread)
+std::atomic<int> g_state_request{0};
+std::atomic<int> g_state_slot{0};
 
 const char* StatusText(Core::System::ResultStatus status, const std::string& details) {
     using Status = Core::System::ResultStatus;
@@ -266,6 +273,62 @@ const char* StatusText(Core::System::ResultStatus status, const std::string& det
     return text.c_str();
 }
 
+// A save state between two frames: what RunLoop does with Signal::Save/Load, done here so it also
+// works while the game is paused and Hinoki hears how it went
+void HandleStateRequest(Core::System& system, azh_event_fn events, void* context,
+                        std::chrono::steady_clock::time_point& waiting_since) {
+    const int request = g_state_request.load();
+    if (request == 0) {
+        waiting_since = {};
+        return;
+    }
+    const auto now = std::chrono::steady_clock::now();
+    if (waiting_since == std::chrono::steady_clock::time_point{})
+        waiting_since = now;
+    const int slot = g_state_slot.load();
+    const int kind = request == 1 ? 0 : 1;
+    const auto send = [&](const char* text) {
+        if (events)
+            events(context, AZH_EVENT_STATE, kind, slot, text);
+    };
+    if (system.Kernel().AreAsyncOperationsPending()) {
+        if (now - waiting_since < std::chrono::seconds(5))
+            return; // the game is reading or writing: in a frame or two
+        g_state_request = 0;
+        waiting_since = {};
+        send("The game was busy (reading or saving). Try again in a moment.");
+        return;
+    }
+    g_state_request = 0;
+    waiting_since = {};
+    try {
+        if (request == 1) {
+            LOG_INFO(Frontend, "Saving state to slot {}", slot);
+            system.SaveState(static_cast<u32>(slot));
+        } else {
+            const auto info = Core::GetSaveStateInfo(g_program_id.load(), 0, static_cast<u32>(slot));
+            if (info.slot == std::numeric_limits<u32>::max() || info.slot != static_cast<u32>(slot)) {
+                send("That save state is empty or damaged.");
+                return;
+            }
+            if (info.status == Core::SaveStateInfo::ValidationStatus::BuildMismatch) {
+                send("That save state was made by a different version of the 3DS core and can't be "
+                     "loaded.");
+                return;
+            }
+            LOG_INFO(Frontend, "Loading state from slot {}", slot);
+            system.LoadState(static_cast<u32>(slot));
+        }
+        send(nullptr);
+    } catch (const std::exception& e) {
+        LOG_ERROR(Frontend, "Save state {}: {}", slot, e.what());
+        static thread_local std::string text;
+        text = request == 1 ? fmt::format("The state could not be saved: {}", e.what())
+                            : fmt::format("The state could not be loaded: {}", e.what());
+        send(text.c_str());
+    }
+}
+
 void EmulationThread(std::string path, azh_event_fn events, void* context) {
     auto& system = Core::System::GetInstance();
     const auto send = [&](int kind, int a, int b, const char* text) {
@@ -298,6 +361,7 @@ void EmulationThread(std::string path, azh_event_fn events, void* context) {
 
     u64 program_id = 0;
     system.GetAppLoader().ReadProgramId(program_id);
+    g_program_id = program_id;
     system.GPU().ApplyPerProgramSettings(program_id);
 
     send(AZH_EVENT_LOADING, 0, 0, nullptr);
@@ -313,13 +377,17 @@ void EmulationThread(std::string path, azh_event_fn events, void* context) {
     send(AZH_EVENT_RUNNING, 0, 0, nullptr);
 
     auto last_perf = std::chrono::steady_clock::now();
+    std::chrono::steady_clock::time_point state_waiting_since{};
     Core::System::ResultStatus exit_status = Core::System::ResultStatus::Success;
     while (!g_stop) {
+        HandleStateRequest(system, events, context, state_waiting_since);
         if (g_paused) {
             const float volume = Settings::values.volume.GetValue();
             Settings::values.volume = 0.f;
-            std::unique_lock lock{g_pause_mutex};
-            g_pause_cv.wait(lock, [] { return !g_paused || g_stop; });
+            {
+                std::unique_lock lock{g_pause_mutex};
+                g_pause_cv.wait(lock, [] { return !g_paused || g_stop || g_state_request != 0; });
+            }
             Settings::values.volume = volume;
             continue;
         }
@@ -348,6 +416,8 @@ void EmulationThread(std::string path, azh_event_fn events, void* context) {
         }
     }
 
+    g_state_request = 0;
+    Settings::ResetTemporaryFrameLimit();
     system.Shutdown();
     g_running = false;
     send(AZH_EVENT_STOPPED, exit_status == Core::System::ResultStatus::ShutdownRequested
@@ -410,6 +480,9 @@ bool azh_init(const char* user_dir, const azh_host* host) {
     Settings::values.async_shader_compilation = true;
     Settings::values.use_disk_shader_cache = true;
     Settings::values.use_vsync = true;
+    Settings::values.async_presentation = true;
+    // There is no 3D screen: the right eye's picture would be drawn for nothing
+    Settings::values.disable_right_eye_render = true;
     Settings::values.output_type = AudioCore::SinkType::Cubeb; // Hinoki's RemoteIO sink in that slot
     Settings::values.input_type = AudioCore::InputType::Static;
     Settings::values.layout_option = Settings::LayoutOption::LargeScreen;
@@ -601,6 +674,26 @@ void azh_set_setting(const char* key_c, const char* value_c) {
     } else if (key == "large_screen_proportion") {
         v.large_screen_proportion = static_cast<float>(real);
         layout_changed = true;
+    } else if (key.starts_with("custom_top_") || key.starts_with("custom_bottom_")) {
+        // Hinoki's own landscape layout (layout_option 6): screen rectangles in the window's pixels
+        const u16 pixels = static_cast<u16>(std::clamp(number, 0, 65535));
+        if (key == "custom_top_x")
+            v.custom_top_x = pixels;
+        else if (key == "custom_top_y")
+            v.custom_top_y = pixels;
+        else if (key == "custom_top_width")
+            v.custom_top_width = pixels;
+        else if (key == "custom_top_height")
+            v.custom_top_height = pixels;
+        else if (key == "custom_bottom_x")
+            v.custom_bottom_x = pixels;
+        else if (key == "custom_bottom_y")
+            v.custom_bottom_y = pixels;
+        else if (key == "custom_bottom_width")
+            v.custom_bottom_width = pixels;
+        else if (key == "custom_bottom_height")
+            v.custom_bottom_height = pixels;
+        layout_changed = true;
     } else if (key == "resolution_factor") {
         v.resolution_factor = static_cast<u32>(std::clamp(number, 1, 10));
     } else if (key == "use_cpu_jit") {
@@ -641,6 +734,14 @@ void azh_set_setting(const char* key_c, const char* value_c) {
         v.render_3d = static_cast<Settings::StereoRenderOption>(number);
     } else if (key == "factor_3d") {
         v.factor_3d = static_cast<u32>(std::clamp(number, 0, 100));
+    } else if (key == "async_presentation") {
+        v.async_presentation = ToBool(value);
+    } else if (key == "disable_right_eye_render") {
+        v.disable_right_eye_render = ToBool(value);
+    } else if (key == "use_skip_duplicate_frames") {
+        v.use_skip_duplicate_frames = ToBool(value);
+    } else if (key == "turbo_limit") {
+        v.turbo_limit = real;
     } else if (key == "delay_game_render_thread_us") {
         v.delay_game_render_thread_us = static_cast<u16>(std::clamp(number, 0, 16000));
     } else {
@@ -670,6 +771,8 @@ bool azh_boot(const char* path, void* layer, int width, int height, float scale,
     g_stop = false;
     g_paused = false;
     g_running = true;
+    g_program_id = 0;
+    g_state_request = 0;
     g_buttons = 0;
     for (auto& value : g_sticks)
         value = 0.f;
@@ -725,6 +828,50 @@ void azh_perf(double* fps, double* speed) {
         *fps = g_fps;
     if (speed)
         *speed = g_speed;
+}
+
+void azh_set_fast_forward(bool on, int percent) {
+    Settings::temporary_frame_limit = on ? std::clamp(percent, 0, 1000) : 0;
+    Settings::is_temporary_frame_limit = on;
+}
+
+bool azh_save_state(int slot) {
+    if (!g_running || slot < 0 || slot >= static_cast<int>(Core::SaveStateSlotCount))
+        return false;
+    int none = 0;
+    g_state_slot = slot;
+    if (!g_state_request.compare_exchange_strong(none, 1))
+        return false;
+    g_pause_cv.notify_all();
+    return true;
+}
+
+bool azh_load_state(int slot) {
+    if (!g_running || slot < 0 || slot >= static_cast<int>(Core::SaveStateSlotCount))
+        return false;
+    int none = 0;
+    g_state_slot = slot;
+    if (!g_state_request.compare_exchange_strong(none, 2))
+        return false;
+    g_pause_cv.notify_all();
+    return true;
+}
+
+char* azh_save_states_json(void) {
+    const u64 program_id = g_program_id.load();
+    std::string out = "[";
+    if (program_id != 0) {
+        for (const auto& info : Core::ListSaveStates(program_id, 0)) {
+            if (out.size() > 1)
+                out += ',';
+            out += fmt::format(R"({{"slot":{},"time":{},"ok":{}}})", info.slot, info.time,
+                               info.status == Core::SaveStateInfo::ValidationStatus::BuildMismatch
+                                   ? "false"
+                                   : "true");
+        }
+    }
+    out += "]";
+    return dup(out);
 }
 
 void azh_set_buttons(uint32_t mask) {

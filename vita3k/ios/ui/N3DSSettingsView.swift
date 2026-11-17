@@ -25,7 +25,13 @@ struct N3DSSettingsView: View {
     @State private var message: String?
     @State private var confirmRemoveKeys = false
     @State private var values: [String: String] = [:]
-    @AppStorage("n3ds.controlsOpacity") private var opacity = 0.55
+    @AppStorage("n3ds.controlsOpacity") private var opacity = 0.9
+    @AppStorage("n3ds.controlsScale") private var controlsScale = 1.0
+    @AppStorage("n3ds.touchReach") private var touchReach = "near"
+    @AppStorage("n3ds.floatingStick") private var floatingStick = false
+    @AppStorage("n3ds.coolDown") private var coolDown = true
+    @AppStorage("n3ds.ffSpeed") private var fastForwardSpeed = "200"
+    @State private var landscapeLayout = N3DSSettings.landscapeLayout
     @AppStorage("n3ds.hideWithController") private var hideWithController = true
     @AppStorage("n3ds.haptics") private var haptics = true
     @AppStorage("n3ds.motion") private var motion = true
@@ -47,25 +53,30 @@ struct N3DSSettingsView: View {
 
             keysSection
 
-            Section("Screens") {
-                Picker("Landscape layout", selection: text("layout_option")) {
-                    Text("Stacked").tag("0")
-                    Text("Large top screen").tag("2")
-                    Text("Side by side").tag("3")
-                    Text("Top screen only").tag("1")
-                    Text("Hybrid").tag("4")
+            Section {
+                Picker("Landscape layout", selection: Binding(get: { landscapeLayout }, set: {
+                    landscapeLayout = $0
+                    N3DSSettings.landscapeLayout = $0
+                })) {
+                    ForEach(N3DSSettings.landscapeLayouts.indices, id: \.self) { index in
+                        Text(N3DSSettings.landscapeLayouts[index].1).tag(N3DSSettings.landscapeLayouts[index].0)
+                    }
                 }
                 Picker("Portrait layout", selection: text("portrait_layout_option")) {
                     Text("Top screen full width").tag("0")
                     Text("Original size").tag("2")
                 }
                 Toggle("Swap screens", isOn: flag("swap_screen"))
-                if current("layout_option") == "2" {
+                if landscapeLayout == "2" {
                     VStack(alignment: .leading) {
                         Text("Large screen size: \(String(format: "%.1f", Double(current("large_screen_proportion")) ?? 4))×")
                         Slider(value: number("large_screen_proportion"), in: 1...6, step: 0.5)
                     }
                 }
+            } header: {
+                Text("Screens")
+            } footer: {
+                Text("Screens between the controls: the big screen sits between two columns of controls so nothing covers the game, with the other screen small beside them. Tap the small screen (or ⇅) to swap which one is big. On iPad both screens fit in the middle.")
             }
 
             Section {
@@ -83,7 +94,8 @@ struct N3DSSettingsView: View {
                     Text("MMPX").tag("5")
                 }
                 Toggle("Smooth screen scaling", isOn: flag("filter_mode"))
-                Toggle("Compile shaders in the background", isOn: flag("async_shader_compilation"))
+                Toggle("Async shader compilation", isOn: flag("async_shader_compilation"))
+                Toggle("Async presentation", isOn: flag("async_presentation"))
                 Toggle("Keep compiled shaders", isOn: flag("use_disk_shader_cache"))
                 Toggle("V-Sync", isOn: flag("use_vsync"))
                 Toggle("Accurate shader multiplication", isOn: flag("shaders_accurate_mul"))
@@ -95,7 +107,28 @@ struct N3DSSettingsView: View {
             } header: {
                 Text("Graphics")
             } footer: {
-                Text("2× looks sharp on a phone; higher costs battery and heat. Background shader compilation avoids stutter the first time effects appear. Custom textures load from Documents/3DS/azahar/load/textures/<title ID>.")
+                Text("2× looks sharp on a phone; higher costs battery and heat. Async shader compilation avoids stutter the first time effects appear; async presentation shows frames on their own thread (smoother on older devices). Custom textures load from Documents/3DS/azahar/load/textures/<title ID>.")
+            }
+
+            Section {
+                HStack(spacing: 8) {
+                    presetButton("Battery", "leaf.fill", resolution: "1")
+                    presetButton("Balanced", "circle.lefthalf.filled", resolution: "2")
+                    presetButton("Quality", "sparkles", resolution: "3")
+                }
+                .buttonStyle(.borderless)
+                Toggle("Draw one eye only (no 3D)", isOn: flag("disable_right_eye_render"))
+                Toggle("Cool down when hot", isOn: $coolDown)
+                Picker("Fast forward speed", selection: $fastForwardSpeed) {
+                    Text("150%").tag("150")
+                    Text("200%").tag("200")
+                    Text("300%").tag("300")
+                    Text("As fast as possible").tag("0")
+                }
+            } header: {
+                Text("Performance and battery")
+            } footer: {
+                Text("Battery: 1×, the coolest and longest-lasting. Balanced: 2×. Quality: 3× on newer phones. The phone has no 3D screen, so drawing one eye only is free speed. Cool down when hot drops to 1× while iOS reports the phone as hot, then goes back. Fast forward: the » button in game, or click the right stick on a controller.")
             }
 
             Section {
@@ -132,15 +165,25 @@ struct N3DSSettingsView: View {
             Section {
                 VStack(alignment: .leading) {
                     Text("Touch controls opacity: \(Int(opacity * 100))%")
-                    Slider(value: $opacity, in: 0.15...1, step: 0.05)
+                    Slider(value: $opacity, in: 0.3...1, step: 0.05)
                 }
+                VStack(alignment: .leading) {
+                    Text("Touch controls size: \(Int(controlsScale * 100))%")
+                    Slider(value: $controlsScale, in: 0.8...1.3, step: 0.05)
+                }
+                Picker("Button touch area", selection: $touchReach) {
+                    Text("On the button").tag("exact")
+                    Text("Near the button").tag("near")
+                    Text("Generous").tag("generous")
+                }
+                Toggle("Floating Circle Pad", isOn: $floatingStick)
                 Toggle("Hide touch controls with a controller", isOn: $hideWithController)
                 Toggle("Vibrate on touch", isOn: $haptics)
                 Toggle("Motion controls (gyroscope)", isOn: $motion)
             } header: {
                 Text("Controls")
             } footer: {
-                Text("Touch the bottom screen directly. Controllers: A, B, X and Y by position, triggers are ZL/ZR, the guide button opens the menu.")
+                Text("Touch the bottom screen directly. Near the button: a tap just beside a button still presses it. Floating Circle Pad: it starts where your thumb lands near it. Controllers: A, B, X and Y by position, triggers are ZL/ZR, the right stick click is fast forward, the guide button opens the menu.")
             }
         }
         .navigationTitle("Nintendo 3DS")
@@ -199,6 +242,27 @@ struct N3DSSettingsView: View {
         } footer: {
             Text("Only needed for encrypted games and CIAs (dumps you didn't decrypt). Dump the keys from your own 3DS with GodMode9 (Scripts › \"GM9Megascript\" › Dump options, or [0:]/gm9/support/aes_keys.txt), and seeddb.bin for newer games. Encrypted games are decrypted once, when you import them.")
         }
+    }
+
+    private func presetButton(_ title: String, _ symbol: String, resolution: String) -> some View {
+        let active = current("resolution_factor") == resolution
+        return Button {
+            store("resolution_factor", resolution)
+            store("async_shader_compilation", "1")
+            store("async_presentation", "1")
+            store("disable_right_eye_render", "1")
+            coolDown = true
+        } label: {
+            VStack(spacing: 4) {
+                Image(systemName: symbol).font(.system(size: 18, weight: .semibold))
+                Text(title).font(.caption.weight(.semibold))
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 8)
+            .background(RoundedRectangle(cornerRadius: 10).fill(active ? Theme.accent.opacity(0.25) : Color.secondary.opacity(0.12)))
+            .overlay(RoundedRectangle(cornerRadius: 10).stroke(active ? Theme.accent : Color.clear, lineWidth: 1.5))
+        }
+        .foregroundStyle(active ? Theme.accent : Color.primary)
     }
 
     private func current(_ key: String) -> String {

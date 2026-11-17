@@ -20,6 +20,7 @@
 #include "bridge/vita3k_bridge.h"
 #include "ios_platform.h"
 
+#include <config/state.h>
 #include <display/state.h>
 #include <emuenv/state.h>
 #include <motion/functions.h>
@@ -47,6 +48,7 @@ namespace {
 std::atomic_bool screenshot_requested{ false };
 std::atomic_bool rear_touch{ false };
 std::atomic_bool rear_touch_applied{ false };
+std::atomic_bool pstv_mode{ false };
 int frames_since_rotation_check = 0;
 int last_rotation = -2;
 
@@ -93,6 +95,10 @@ extern "C" bool v3k_rear_touch(void) {
     return rear_touch;
 }
 
+extern "C" bool v3k_pstv_mode(void) {
+    return pstv_mode;
+}
+
 extern "C" void v3k_set_portrait_top(float pixels) {
     renderer::tall_window_top().store(pixels, std::memory_order_relaxed);
 }
@@ -103,6 +109,7 @@ void session_started(EmuEnvState &emuenv) {
     screenshot_requested = false;
     rear_touch = false;
     rear_touch_applied = false;
+    pstv_mode = emuenv.cfg.current_config.pstv_mode;
     set_rear_touchscreen(emuenv.touch, false);
     frames_since_rotation_check = 0;
     last_rotation = -2;
@@ -136,6 +143,7 @@ void session_ended(EmuEnvState &emuenv) {
     screenshot_requested = false;
     rear_touch = false;
     rear_touch_applied = false;
+    pstv_mode = false;
     set_rear_touchscreen(emuenv.touch, false);
 }
 

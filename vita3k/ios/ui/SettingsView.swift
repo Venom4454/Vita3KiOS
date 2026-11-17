@@ -259,6 +259,8 @@ struct TouchControlsSection: View {
     @AppStorage("v3k.portraitMode") private var portraitMode = true
     @AppStorage("v3k.tvMode") private var tvMode = true
     @AppStorage("v3k.controllerTheme") private var controllerTheme = ControllerTheme.classic.rawValue
+    @AppStorage("v3k.touchStickStyle") private var stickStyle = StickStyle.fixed.rawValue
+    @AppStorage("v3k.touchReach") private var touchReach = TouchReach.exact.rawValue
     @EnvironmentObject var model: LibraryModel
     @State private var layoutCustomized = TouchLayout.isCustomized
 
@@ -276,6 +278,37 @@ struct TouchControlsSection: View {
             VStack(alignment: .leading) {
                 Text("Size: \(Int(touchScale * 100))%")
                 Slider(value: $touchScale, in: 0.7...1.4, step: 0.05)
+            }
+            Picker(selection: $stickStyle) {
+                ForEach(StickStyle.allCases) { style in
+                    Text(style.name).tag(style.rawValue)
+                }
+            } label: {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Sticks")
+                    Text(stickStyle == StickStyle.zones.rawValue
+                         ? "No sticks drawn: drag anywhere on the left or right half. Those halves no longer touch the Vita screen; switch back for games that need it."
+                         : stickStyle == StickStyle.floating.rawValue
+                         ? "The stick starts wherever your thumb lands near it."
+                         : "The sticks stay where they're drawn.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            Picker(selection: $touchReach) {
+                ForEach(TouchReach.allCases) { reach in
+                    Text(reach.name).tag(reach.rawValue)
+                }
+            } label: {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Button touch area")
+                    Text("How close to a button a tap must land. Near or generous: a tap just beside a button presses the closest one.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            NavigationLink {
+                MacroButtonsView()
+            } label: {
+                Label("Macro buttons", systemImage: "square.stack.3d.up")
             }
             Toggle("Hide when a controller is connected", isOn: $hideWithController)
             Toggle("Vibrate on press", isOn: $touchHaptics)
@@ -530,7 +563,7 @@ struct EmulationSections: View {
                 described("CPU optimisations", "Much faster. Turn off only to test a game that breaks.")
             }
             Toggle(isOn: binding(\.pstvMode) { model.setBool("pstv-mode", $0) }) {
-                described("PS TV mode", "Tells games they run on a PS TV. Some then use the controller's extra buttons; touch-only games may refuse to start.")
+                described("PS TV mode", "Tells games they run on a PS TV. Some then use the controller's extra buttons: the touch controls add L2, R2, L3 and R3 while it's on. Touch-only games may refuse to start.")
             }
             NavigationLink {
                 PerformanceOverlaySettings()

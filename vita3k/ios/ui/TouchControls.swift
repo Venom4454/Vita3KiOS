@@ -13,6 +13,7 @@ import UIKit
 private enum Pad {
     static let cross: Int32 = 0, circle: Int32 = 1, square: Int32 = 2, triangle: Int32 = 3
     static let select: Int32 = 4, start: Int32 = 6
+    static let l3: Int32 = 7, r3: Int32 = 8
     static let l: Int32 = 9, r: Int32 = 10
     static let up: Int32 = 11, down: Int32 = 12, left: Int32 = 13, right: Int32 = 14
     static let leftX: Int32 = 0, leftY: Int32 = 1, rightX: Int32 = 2, rightY: Int32 = 3
@@ -96,6 +97,8 @@ func darkened(_ color: UIColor, by brightness: CGFloat) -> UIColor {
 
 final class PadButtonView: UIView {
     let button: Int32
+    /// Set for L2 / R2 (PS TV mode): the trigger axis this button pushes all the way
+    var axis: Int32?
     private let label = UILabel()
     private let feedback = UIImpactFeedbackGenerator(style: .light)
 
@@ -150,7 +153,11 @@ final class PadButtonView: UIView {
     }
 
     private func setPressed(_ pressed: Bool) {
-        v3k_pad_set_button(TouchMapping.button(for: button), pressed)
+        if let axis {
+            PadPress.trigger(axis, pressed)
+        } else {
+            PadPress.button(TouchMapping.button(for: button), pressed)
+        }
         backgroundColor = pressed ? pressedFill : baseFill
         if pressed && haptics { feedback.impactOccurred() }
     }
@@ -163,16 +170,28 @@ final class PadButtonView: UIView {
 final class StickView: UIView {
     private let xAxis: Int32
     private let yAxis: Int32
+    private let base = UIView()
     private let knob = UIView()
     private var tracking = false
+    /// Floating and screen-half sticks: the view is the area a thumb can land in, and the stick is
+    /// drawn where it lands (fixed: the view is the stick)
+    private(set) var style = StickStyle.fixed
+    /// Size of the drawn stick (floating, screen halves)
+    private var stickSize: CGFloat = 0
+    /// Where the stick rests, in this view (floating)
+    private var restCenter = CGPoint.zero
+    private var origin: CGPoint?
 
     init(xAxis: Int32, yAxis: Int32) {
         self.xAxis = xAxis
         self.yAxis = yAxis
         super.init(frame: .zero)
-        backgroundColor = UIColor.black.withAlphaComponent(0.55)
-        layer.borderColor = UIColor.white.withAlphaComponent(0.4).cgColor
-        layer.borderWidth = 1.5
+        backgroundColor = .clear
+        base.backgroundColor = UIColor.black.withAlphaComponent(0.55)
+        base.layer.borderColor = UIColor.white.withAlphaComponent(0.4).cgColor
+        base.layer.borderWidth = 1.5
+        base.isUserInteractionEnabled = false
+        addSubview(base)
         knob.backgroundColor = UIColor(white: 0.32, alpha: 0.85)
         knob.layer.borderColor = UIColor.white.withAlphaComponent(0.45).cgColor
         knob.layer.borderWidth = 1
@@ -182,21 +201,61 @@ final class StickView: UIView {
 
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
+    func setTint(_ color: UIColor) {
+        base.layer.borderColor = color.withAlphaComponent(0.35).cgColor
+    }
+
+    /// Fixed: the stick fills the view. Otherwise the view is the landing area and `stick` (in the
+    /// superview) is where the stick rests.
+    func configure(style: StickStyle, stick: CGRect) {
+        self.style = style
+        stickSize = stick.width
+        restCenter = CGPoint(x: stick.midX - frame.minX, y: stick.midY - frame.minY)
+        setNeedsLayout()
+    }
+
+    /// The drawn stick, in the superview (the layout editor outlines this)
+    var stickFrame: CGRect {
+        style == .fixed ? frame : base.frame.offsetBy(dx: frame.minX, dy: frame.minY)
+    }
+
     override func layoutSubviews() {
         super.layoutSubviews()
-        layer.cornerRadius = bounds.width / 2
-        let size = bounds.width * 0.45
-        knob.bounds = CGRect(x: 0, y: 0, width: size, height: size)
-        knob.layer.cornerRadius = size / 2
-        if !tracking { knob.center = CGPoint(x: bounds.midX, y: bounds.midY) }
+        let size = style == .fixed ? bounds.width : stickSize
+        let center = origin ?? (style == .fixed ? CGPoint(x: bounds.midX, y: bounds.midY) : restCenter)
+        base.bounds = CGRect(x: 0, y: 0, width: size, height: size)
+        base.center = center
+        base.layer.cornerRadius = size / 2
+        let knobSize = size * 0.45
+        knob.bounds = CGRect(x: 0, y: 0, width: knobSize, height: knobSize)
+        knob.layer.cornerRadius = knobSize / 2
+        if !tracking { knob.center = center }
+        // Screen halves: nothing drawn until a thumb lands
+        let shown = style != .zones || tracking
+        base.alpha = shown ? 1 : 0
+        knob.alpha = shown ? 1 : 0
     }
 
     private func update(_ touch: UITouch) {
+        let point = touch.location(in: self)
+        if origin == nil {
+            if style == .fixed {
+                origin = CGPoint(x: bounds.midX, y: bounds.midY)
+            } else {
+                // The stick comes to the thumb, kept inside the area
+                let half = stickSize / 2
+                origin = CGPoint(x: min(max(point.x, half), max(bounds.width - half, half)),
+                                 y: min(max(point.y, half), max(bounds.height - half, half)))
+            }
+            tracking = true
+            setNeedsLayout()
+            layoutIfNeeded()
+        }
         tracking = true
-        let center = CGPoint(x: bounds.midX, y: bounds.midY)
-        let radius = bounds.width / 2
-        var dx = touch.location(in: self).x - center.x
-        var dy = touch.location(in: self).y - center.y
+        guard let center = origin else { return }
+        let radius = (style == .fixed ? bounds.width : stickSize) / 2
+        var dx = point.x - center.x
+        var dy = point.y - center.y
         let length = sqrt(dx * dx + dy * dy)
         if length > radius {
             dx *= radius / length
@@ -207,9 +266,11 @@ final class StickView: UIView {
         v3k_pad_set_axis(yAxis, Float(dy / radius))
     }
 
-    private func reset() {
+    func reset() {
         tracking = false
-        knob.center = CGPoint(x: bounds.midX, y: bounds.midY)
+        origin = nil
+        setNeedsLayout()
+        layoutIfNeeded()
         v3k_pad_set_axis(xAxis, 0)
         v3k_pad_set_axis(yAxis, 0)
     }
@@ -223,6 +284,10 @@ final class StickView: UIView {
 /// Groups of touch controls the player can move and resize (in-game menu › Edit control layout)
 enum ControlGroup: String, CaseIterable {
     case l, r, dpad, face, leftStick, rightStick, startSelect
+    // PS TV mode only
+    case l2, r2, l3, r3
+    // Macro buttons the player set up
+    case macro1, macro2, macro3, macro4
 }
 
 struct GroupPlacement: Codable, Equatable {
@@ -306,6 +371,18 @@ final class ControlsOverlayView: UIView {
     private let start = PadButtonView(button: Pad.start, title: "START", fontSize: 10)
     private let leftStick = StickView(xAxis: Pad.leftX, yAxis: Pad.leftY)
     private let rightStick = StickView(xAxis: Pad.rightX, yAxis: Pad.rightY)
+    // PS TV mode only (a PS TV controller's extra buttons): shown while the running game uses it
+    private let l2 = PadButtonView(button: -1, title: "L2", fontSize: 15)
+    private let r2 = PadButtonView(button: -1, title: "R2", fontSize: 15)
+    private let l3 = PadButtonView(button: Pad.l3, title: "L3", fontSize: 12)
+    private let r3 = PadButtonView(button: Pad.r3, title: "R3", fontSize: 12)
+    private var pstvActive = false
+    private var pstvButtons: [PadButtonView] { [l2, r2, l3, r3] }
+    // Settings › Controls › Macro buttons
+    private let macroButtons: [MacroButtonView]
+    // Settings › Controls › Sticks and Touch reach
+    private let stickStyle = StickStyle.current
+    private let touchReach = TouchReach.current
     private let exitButton = UIButton(type: .system)
     private let hideButton = UIButton(type: .system)
     private let pauseButton = UIButton(type: .system)
@@ -336,7 +413,7 @@ final class ControlsOverlayView: UIView {
     private var hiddenBeforeEditing = false
 
     private var controls: [UIView] {
-        [l, r, up, down, left, right, triangle, circle, cross, square, select, start, leftStick, rightStick]
+        [l, r, up, down, left, right, triangle, circle, cross, square, select, start, leftStick, rightStick, l2, r2, l3, r3] + macroButtons
     }
 
     private var controlsHidden = UserDefaults.standard.bool(forKey: "v3k.touchControlsHidden") {
@@ -361,10 +438,16 @@ final class ControlsOverlayView: UIView {
     private let hud = PerformanceHUDView(frame: .zero)
 
     override init(frame: CGRect) {
+        macroButtons = TouchMacro.load().map { MacroButtonView(macro: $0, tint: ControllerTheme.current.tint) }
         super.init(frame: frame)
         backgroundColor = .clear
         isMultipleTouchEnabled = true
+        l2.axis = 4 // SDL left trigger
+        r2.axis = 5
         controls.forEach { addSubview($0) }
+        // Under every button: a floating stick's landing area may reach behind them
+        insertSubview(rightStick, at: 0)
+        insertSubview(leftStick, at: 0)
 
         exitButton.setImage(UIImage(systemName: "xmark.circle.fill"), for: .normal)
         exitButton.tintColor = UIColor.white.withAlphaComponent(0.85)
@@ -449,11 +532,11 @@ final class ControlsOverlayView: UIView {
             let (title, faceColor) = theme.face(position)
             button.style(title: title, color: faceColor, theme: theme, faceButton: true)
         }
-        for button in [l, r, up, down, left, right, select, start] {
+        for button in [l, r, up, down, left, right, select, start, l2, r2, l3, r3] {
             button.style(color: theme.tint, theme: theme, faceButton: false)
         }
         for stick in [leftStick, rightStick] {
-            stick.layer.borderColor = theme.tint.withAlphaComponent(0.35).cgColor
+            stick.setTint(theme.tint)
         }
 
         controls.forEach { $0.alpha = opacity }
@@ -469,11 +552,21 @@ final class ControlsOverlayView: UIView {
 
         shortcutTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
             self?.checkControllerShortcut()
+            self?.checkPSTVMode()
         }
     }
 
     deinit {
         shortcutTimer?.invalidate()
+    }
+
+    /// The running game's PS TV mode (known once it has started): L2, R2, L3 and R3 appear with it
+    private func checkPSTVMode() {
+        let active = v3k_pstv_mode()
+        guard active != pstvActive else { return }
+        pstvActive = active
+        applyVisibility()
+        setNeedsLayout()
     }
 
     private func checkControllerShortcut() {
@@ -488,7 +581,7 @@ final class ControlsOverlayView: UIView {
         if let since = shortcutHeldSince {
             if Date().timeIntervalSince(since) > 1.2 && menuAlert == nil {
                 shortcutHeldSince = .distantFuture // fire once per hold
-                v3k_pad_release_all()
+                releaseAll()
                 showMenu(fromController: true)
             }
         } else {
@@ -502,7 +595,28 @@ final class ControlsOverlayView: UIView {
     // game window isn't under this one any more, so this view takes them and passes them on.
     override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
         let hit = super.hitTest(point, with: event)
+        // Touch reach: a tap just outside a button (or in a floating stick's area, near a button)
+        // presses the nearest button
+        let inStickArea = (hit as? StickView).map { $0.style != .fixed } ?? false
+        if editor == nil, touchReach != .exact, hit === self || inStickArea, let near = nearestControl(to: point) {
+            return near
+        }
         return hit === self ? (forwardsTouches ? self : nil) : hit
+    }
+
+    private func nearestControl(to point: CGPoint) -> UIView? {
+        var best: (view: UIView, distance: CGFloat)?
+        for view in controls where !view.isHidden && view.alpha > 0.01 && view.isUserInteractionEnabled {
+            if let stick = view as? StickView, stick.style != .fixed { continue }
+            let frame = view.frame
+            let reach = min(frame.width, frame.height) * touchReach.share
+            let dx = max(frame.minX - point.x, 0, point.x - frame.maxX)
+            let dy = max(frame.minY - point.y, 0, point.y - frame.maxY)
+            let distance = sqrt(dx * dx + dy * dy)
+            guard distance <= reach else { continue }
+            if best == nil || distance < best!.distance { best = (view, distance) }
+        }
+        return best?.view
     }
 
     /// The game is on a TV: this phone is only the controller (black behind the controls, touches on
@@ -532,13 +646,22 @@ final class ControlsOverlayView: UIView {
     private func applyVisibility() {
         let hidden = editor == nil && (controlsHidden || (hideWithController && controllerConnected))
         controls.forEach { $0.isHidden = hidden }
+        pstvButtons.forEach { $0.isHidden = hidden || !pstvActive }
         hideButton.setImage(UIImage(systemName: controlsHidden ? "gamecontroller" : "eye.slash"), for: .normal)
-        if hidden { v3k_pad_release_all() }
+        if hidden { releaseAll() }
         updateRearButton()
     }
 
     @objc private func exitTapped() {
         showMenu(fromController: false)
+    }
+
+    /// Every on-screen and macro press let go
+    private func releaseAll() {
+        macroButtons.forEach { $0.releaseIfHeld() }
+        leftStick.reset()
+        rightStick.reset()
+        PadPress.releaseAll()
     }
 
     @objc private func pauseTapped() {
@@ -547,7 +670,7 @@ final class ControlsOverlayView: UIView {
 
     /// The pause button: the game stops (CPU, GPU and sound) until resumed; Quit works while paused
     func setUserPaused(_ paused: Bool) {
-        v3k_pad_release_all()
+        releaseAll()
         v3k_set_game_paused(1, paused)
         let isPaused = v3k_game_paused_by_user()
         pauseButton.setImage(UIImage(systemName: isPaused ? "play.fill" : "pause.fill"), for: .normal)
@@ -567,7 +690,7 @@ final class ControlsOverlayView: UIView {
 
     func showMenu(fromController: Bool) {
         guard menuAlert == nil, editor == nil, let root = window?.rootViewController else { return }
-        v3k_pad_release_all()
+        releaseAll()
         v3k_set_game_paused(2, true)
         let alert = UIAlertController(title: "Game menu", message: fromController
             ? "Press the controller's Home/PS button, or hold Select + Start, to open this menu. The game is paused while it is open."
@@ -621,7 +744,7 @@ final class ControlsOverlayView: UIView {
         v3k_set_game_paused(2, true)
         let alert = UIAlertController(title: "Quit game?", message: "Unsaved progress will be lost.", preferredStyle: .alert)
         alert.addAction(UIAlertAction(title: "Quit", style: .destructive) { [weak self] _ in
-            v3k_pad_release_all()
+            releaseAll()
             // the game closes faster running than paused
             self?.menuAlert = nil
             v3k_set_game_paused(2, false)
@@ -689,10 +812,11 @@ final class ControlsOverlayView: UIView {
 
     func beginEditing() {
         guard editor == nil else { return }
-        v3k_pad_release_all()
+        releaseAll()
         hiddenBeforeEditing = controlsHidden
         if controlsHidden { controlsHidden = false }
         controls.forEach { $0.isHidden = false; $0.isUserInteractionEnabled = false }
+        pstvButtons.forEach { $0.isHidden = !pstvActive }
         [exitButton, pauseButton, hideButton, rearButton].forEach { $0.isHidden = true }
         let newEditor = LayoutEditorView(overlay: self)
         newEditor.frame = bounds
@@ -731,17 +855,42 @@ final class ControlsOverlayView: UIView {
         case .leftStick: [leftStick]
         case .rightStick: [rightStick]
         case .startSelect: [select, start]
+        case .l2: [l2]
+        case .r2: [r2]
+        case .l3: [l3]
+        case .r3: [r3]
+        case .macro1, .macro2, .macro3, .macro4:
+            macroIndex(group).map { $0 < macroButtons.count ? [macroButtons[$0] as UIView] : [] } ?? []
         }
     }
 
+    private func macroIndex(_ group: ControlGroup) -> Int? {
+        switch group {
+        case .macro1: 0
+        case .macro2: 1
+        case .macro3: 2
+        case .macro4: 3
+        default: nil
+        }
+    }
+
+    /// Groups on screen now (PS TV buttons only in PS TV mode, macros only when set up; the sticks
+    /// can't be moved in screen-halves style)
+    func isShown(_ group: ControlGroup) -> Bool {
+        let members = views(of: group)
+        if members.isEmpty || members.allSatisfy(\.isHidden) { return false }
+        if stickStyle == .zones && (group == .leftStick || group == .rightStick) { return false }
+        return true
+    }
+
     func frame(of group: ControlGroup) -> CGRect {
-        views(of: group).map(\.frame).reduce(CGRect.null) { $0.union($1) }
+        views(of: group).map { ($0 as? StickView)?.stickFrame ?? $0.frame }.reduce(CGRect.null) { $0.union($1) }
     }
 
     func group(at point: CGPoint) -> ControlGroup? {
         // Smallest group under the finger, so the sticks can sit inside a cluster's box
         ControlGroup.allCases
-            .filter { frame(of: $0).insetBy(dx: -12, dy: -12).contains(point) }
+            .filter { isShown($0) && frame(of: $0).insetBy(dx: -12, dy: -12).contains(point) }
             .min { frame(of: $0).width * frame(of: $0).height < frame(of: $1).width * frame(of: $1).height }
     }
 
@@ -822,7 +971,25 @@ final class ControlsOverlayView: UIView {
         select.frame = CGRect(x: area.midX - smallWidth - 8, y: area.maxY - smallHeight, width: smallWidth, height: smallHeight)
         start.frame = CGRect(x: area.midX + 8, y: area.maxY - smallHeight, width: smallWidth, height: smallHeight)
 
+        // PS TV: L2 / R2 beside the shoulder buttons, L3 / R3 in the bottom corners
+        l2.frame = CGRect(x: l.frame.maxX + 8, y: area.minY, width: unit * 1.4, height: unit * 0.8)
+        r2.frame = CGRect(x: r.frame.minX - 8 - unit * 1.4, y: area.minY, width: unit * 1.4, height: unit * 0.8)
+        l3.frame = CGRect(x: area.minX, y: area.maxY - unit * 0.6, width: unit * 1.1, height: unit * 0.6)
+        r3.frame = CGRect(x: area.maxX - unit * 1.1, y: area.maxY - unit * 0.6, width: unit * 1.1, height: unit * 0.6)
+
+        // Macros: a column beside the face buttons
+        let macroSize = unit * 0.9
+        let columnHeight = CGFloat(macroButtons.count) * macroSize + CGFloat(max(macroButtons.count - 1, 0)) * unit * 0.12
+        for (index, macro) in macroButtons.enumerated() {
+            macro.frame = CGRect(x: area.maxX - clusterSize - unit * 0.25 - macroSize,
+                                 y: clusterY + clusterSize / 2 - columnHeight / 2 + CGFloat(index) * macroSize * 1.13,
+                                 width: macroSize, height: macroSize)
+            macro.lookRadius = unit * 1.3
+        }
+
         applyPlacements(in: area)
+        applyStickStyle(zones: (CGRect(x: bounds.minX, y: area.minY + unit, width: bounds.width / 2, height: bounds.maxY - area.minY - unit),
+                                CGRect(x: bounds.midX, y: area.minY + unit, width: bounds.width / 2, height: bounds.maxY - area.minY - unit)))
 
         // Menu, show/hide, rear touchpad and the button that tucks them away, top centre
         let topButtons = showRearButton ? [exitButton, pauseButton, hideButton, rearButton, collapseButton] : [exitButton, pauseButton, hideButton, collapseButton]
@@ -886,9 +1053,16 @@ final class ControlsOverlayView: UIView {
         select.frame = CGRect(x: controls.midX - smallWidth - 8, y: controls.maxY - smallHeight, width: smallWidth, height: smallHeight)
         start.frame = CGRect(x: controls.midX + 8, y: controls.maxY - smallHeight, width: smallWidth, height: smallHeight)
 
+        // PS TV: L2 / R2 under L / R (the clusters move down to make room), L3 / R3 in the bottom corners
+        l2.frame = CGRect(x: controls.minX, y: l.frame.maxY + 4, width: unit * 1.7, height: unit * 0.6)
+        r2.frame = CGRect(x: controls.maxX - unit * 1.7, y: r.frame.maxY + 4, width: unit * 1.7, height: unit * 0.6)
+        l3.frame = CGRect(x: controls.minX, y: controls.maxY - smallHeight, width: unit * 1.0, height: smallHeight)
+        r3.frame = CGRect(x: controls.maxX - unit * 1.0, y: controls.maxY - smallHeight, width: unit * 1.0, height: smallHeight)
+        let shouldersBottom = pstvActive ? l2.frame.maxY : l.frame.maxY
+
         let clusterSize = unit * 3
-        let free = select.frame.minY - l.frame.maxY
-        let clusterY = l.frame.maxY + max((free - clusterSize - unit * 1.9) / 3, 8)
+        let free = select.frame.minY - shouldersBottom
+        let clusterY = shouldersBottom + max((free - clusterSize - unit * 1.9) / 3, 8)
         layoutDiamond(top: up, right: right, bottom: down, left: left,
                       in: CGRect(x: controls.minX, y: clusterY, width: clusterSize, height: clusterSize), unit: unit)
         layoutDiamond(top: triangle, right: circle, bottom: cross, left: square,
@@ -899,7 +1073,17 @@ final class ControlsOverlayView: UIView {
         leftStick.frame = CGRect(x: controls.minX + unit * 0.6, y: stickY, width: stickSize, height: stickSize)
         rightStick.frame = CGRect(x: controls.maxX - unit * 0.6 - stickSize, y: stickY, width: stickSize, height: stickSize)
 
+        // Macros: a row at the bottom of the game picture, from the right
+        let macroSize = unit * 0.8
+        for (index, macro) in macroButtons.enumerated() {
+            macro.frame = CGRect(x: controls.maxX - CGFloat(index + 1) * macroSize - CGFloat(index) * 8,
+                                 y: gameBottom - macroSize - 8, width: macroSize, height: macroSize)
+            macro.lookRadius = unit * 1.3
+        }
+
         applyPlacements(in: controls)
+        applyStickStyle(zones: (CGRect(x: bounds.minX, y: controls.minY + unit, width: bounds.width / 2, height: bounds.maxY - controls.minY - unit),
+                                CGRect(x: bounds.midX, y: controls.minY + unit, width: bounds.width / 2, height: bounds.maxY - controls.minY - unit)))
 
         if !hud.isHidden {
             // Over the game picture, in the chosen corner
@@ -916,6 +1100,26 @@ final class ControlsOverlayView: UIView {
             hud.frame = CGRect(origin: origin, size: size)
         }
         if let editor { bringSubviewToFront(editor); editor.refresh() }
+    }
+
+    /// Floating sticks get a landing area around where they're drawn; screen halves make each half of
+    /// the screen (below the top buttons) a stick. Fixed sticks, and every stick while the layout is
+    /// being edited, stay as drawn.
+    private func applyStickStyle(zones: (left: CGRect, right: CGRect)) {
+        let style = editor == nil ? stickStyle : .fixed
+        for (stick, zone) in [(leftStick, zones.left), (rightStick, zones.right)] {
+            let drawn = stick.frame
+            switch style {
+            case .fixed:
+                stick.configure(style: .fixed, stick: drawn)
+            case .floating:
+                stick.frame = drawn.insetBy(dx: -drawn.width * 0.6, dy: -drawn.width * 0.6).intersection(bounds)
+                stick.configure(style: .floating, stick: drawn)
+            case .zones:
+                stick.frame = zone
+                stick.configure(style: .zones, stick: drawn)
+            }
+        }
     }
 
     private func layoutDiamond(top: UIView, right: UIView, bottom: UIView, left: UIView, in rect: CGRect, unit: CGFloat) {
@@ -1064,7 +1268,7 @@ enum TVMode {
         window.layoutIfNeeded()
         active = true
         v3k_set_tv_mode(true)
-        v3k_pad_release_all()
+        PadPress.releaseAll()
         setOverlay(tv: true)
         v3k_log_ui("TV: the game moved to a \(Int(screen.nativeBounds.width))x\(Int(screen.nativeBounds.height)) display (mode \(Int(screen.currentMode?.size.width ?? 0))x\(Int(screen.currentMode?.size.height ?? 0))), the phone is the controller")
     }
@@ -1080,7 +1284,7 @@ enum TVMode {
         window.layoutIfNeeded()
         active = false
         v3k_set_tv_mode(false)
-        v3k_pad_release_all()
+        PadPress.releaseAll()
         setOverlay(tv: false)
         v3k_tv_placeholder(true)
         v3k_log_ui("TV: disconnected, the game is back on the phone")
@@ -1147,7 +1351,7 @@ public func v3kControlsDetach() {
 @_cdecl("v3k_controls_show_menu")
 public func v3kControlsShowMenu() {
     MainActor.assumeIsolated {
-        v3k_pad_release_all()
+        PadPress.releaseAll()
         (ControlsHost.window?.rootViewController?.view as? ControlsOverlayView)?.showMenu(fromController: true)
     }
 }
@@ -1226,6 +1430,10 @@ final class LayoutEditorView: UIView {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         for (group, outline) in outlines {
+            guard overlay.isShown(group) else {
+                outline.path = nil
+                continue
+            }
             let box = overlay.frame(of: group).insetBy(dx: -6, dy: -6)
             outline.path = UIBezierPath(roundedRect: box, cornerRadius: 12).cgPath
             outline.strokeColor = (group == activeGroup || group == pinchGroup ? Theme.accentUIColor : UIColor.white.withAlphaComponent(0.8)).cgColor

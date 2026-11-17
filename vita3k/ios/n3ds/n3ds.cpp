@@ -76,6 +76,10 @@ struct Core {
     AZH_FN(azh_set_stick);
     AZH_FN(azh_touch);
     AZH_FN(azh_set_motion);
+    AZH_FN(azh_set_fast_forward);
+    AZH_FN(azh_save_state);
+    AZH_FN(azh_load_state);
+    AZH_FN(azh_save_states_json);
 #undef AZH_FN
 };
 
@@ -246,6 +250,10 @@ bool load_core() {
         AZH_BIND(azh_set_stick);
         AZH_BIND(azh_touch);
         AZH_BIND(azh_set_motion);
+        AZH_BIND(azh_set_fast_forward);
+        AZH_BIND(azh_save_state);
+        AZH_BIND(azh_load_state);
+        AZH_BIND(azh_save_states_json);
 #undef AZH_BIND
         if (!complete || g_core.azh_api_version() != AZH_API_VERSION) {
             g_core.error = "The 3DS core in this build doesn't match the app.";
@@ -1011,6 +1019,29 @@ void v3k_n3ds_touch(int phase, float x, float y) {
 void v3k_n3ds_set_motion(float gx, float gy, float gz, float ax, float ay, float az) {
     if (g_core.handle)
         g_core.azh_set_motion(gx, gy, gz, ax, ay, az);
+}
+
+void v3k_n3ds_set_fast_forward(bool on, int percent) {
+    if (g_core.handle)
+        g_core.azh_set_fast_forward(on, percent);
+}
+
+bool v3k_n3ds_save_state(int slot) {
+    return g_core.handle && g_core.azh_save_state(slot);
+}
+
+bool v3k_n3ds_load_state(int slot) {
+    return g_core.handle && g_core.azh_load_state(slot);
+}
+
+char *v3k_n3ds_save_states_json(void) {
+    if (!g_core.handle)
+        return dup_string("[]");
+    char *json = g_core.azh_save_states_json();
+    std::string out = json ? json : "[]";
+    if (json)
+        g_core.azh_free(json);
+    return dup_string(out);
 }
 
 void v3k_n3ds_session_ended(const char *id, double seconds) {

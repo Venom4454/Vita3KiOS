@@ -11,7 +11,8 @@ Usage: apply.py <azahar checkout>
    - dynarmic: writes through the writable alias; spin lock in plain C (it compiled its own code)
    - ARM_Dynarmic: code cache sizes the pool holds
    - Vulkan: Hinoki's MoltenVK (one Vulkan driver per app)
-   - audio: Hinoki's RemoteIO output in the sink list
+   - audio: Hinoki's RemoteIO output in the sink list; no sped-up sound after a stall
+   - Vulkan: a smaller texture upload ring (phone memory)
 Every edit is idempotent: running it twice changes nothing more.
 """
 import pathlib
@@ -278,5 +279,47 @@ edit("src/common/apple_utils.mm", """    return 60; // Something went wrong, so 
 }
 #endif // HINOKI
 """)
+
+# ---- 2g. audio stretching: no sped-up sound after a stall ----
+# A stall (a game loading, a level starting) left a backlog that the stretcher then played back fast
+# until it drained: the music and effects raced for a second each time something new loaded. Hold the
+# tempo through a stall, never play faster than the emulation runs, and drop a backlog past ~0.4 s.
+TS = "src/audio_core/time_stretch.cpp"
+edit(TS, '#include "common/logging/log.h"\n', '#include "common/logging/log.h"\n#include "common/settings.h" // HINOKI\n')
+edit(TS, """    const double backlog_fullness = sound_touch->numSamples() / max_backlog;
+    if (backlog_fullness > 4.0) {""", """    double backlog_fullness = sound_touch->numSamples() / max_backlog;
+    // HINOKI: a backlog this long would be heard sped up: skip it once instead
+    if (backlog_fullness > 1.5) {
+        sound_touch->receiveSamples(
+            static_cast<unsigned int>(sound_touch->numSamples() - max_backlog * 0.5));
+        backlog_fullness = sound_touch->numSamples() / max_backlog;
+    }
+    // HINOKI: no samples for a while is a stall (loading), not slow emulation: keep the tempo
+    static thread_local double hinoki_starved = 0.0;
+    hinoki_starved = num_in == 0 ? hinoki_starved + time_delta : 0.0;
+    const bool hinoki_stalled = hinoki_starved > 0.1;
+    if (backlog_fullness > 4.0) {""")
+edit(TS, """    stretch_ratio += lpf_gain * (current_ratio - stretch_ratio);
+
+    // Place a lower limit of 5% speed. When a game boots up, there will be
+    // many silence samples. These do not need to be timestretched.
+    stretch_ratio = std::max(stretch_ratio, 0.05);""", """    if (!hinoki_stalled) { // HINOKI
+        stretch_ratio += lpf_gain * (current_ratio - stretch_ratio);
+    }
+
+    // Place a lower limit of 5% speed. When a game boots up, there will be
+    // many silence samples. These do not need to be timestretched.
+    stretch_ratio = std::max(stretch_ratio, 0.05);
+    // HINOKI: never faster than the emulation may run (full speed, or the fast forward speed)
+    const double hinoki_limit = Settings::GetFrameLimit();
+    stretch_ratio = std::min(stretch_ratio,
+                             hinoki_limit <= 0 ? 4.0 : std::max(1.02, hinoki_limit / 100.0));""")
+
+# ---- 2h. memory: the texture upload ring is shared memory on a phone ----
+# 512 MiB of host-visible memory counts against the app's limit on iOS (unified memory); 128 MiB
+# still holds the largest custom texture with its mipmaps
+edit("src/video_core/renderer_vulkan/vk_texture_runtime.cpp",
+     "constexpr u64 UPLOAD_BUFFER_SIZE = 512_MiB;",
+     "constexpr u64 UPLOAD_BUFFER_SIZE = 128_MiB; // HINOKI: 512 MiB on desktop")
 
 print("Azahar prepared for Hinoki")

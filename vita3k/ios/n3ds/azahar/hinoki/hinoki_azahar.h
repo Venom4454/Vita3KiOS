@@ -14,7 +14,7 @@
 extern "C" {
 #endif
 
-#define AZH_API_VERSION 1
+#define AZH_API_VERSION 2
 
 // What Hinoki lends the core
 typedef struct azh_host {
@@ -72,6 +72,8 @@ enum azh_event {
     AZH_EVENT_RUNNING = 2,
     AZH_EVENT_ERROR = 3, // text: what went wrong (the game keeps going when it can)
     AZH_EVENT_STOPPED = 4, // a = Azahar's result (0 normal exit); the last event of a session
+    AZH_EVENT_STATE = 5,   // a save state: a = 0 saved / 1 loaded, b = slot; text NULL when it
+                           // worked, otherwise what went wrong
 };
 typedef void (*azh_event_fn)(void *context, int kind, int a, int b, const char *text);
 bool azh_boot(const char *path, void *layer, int width, int height, float scale, bool portrait,
@@ -83,6 +85,16 @@ void azh_stop(void);
 bool azh_running(void);
 // Frames per second and speed (100 = full) over the last second
 void azh_perf(double *fps, double *speed);
+// Fast forward: on runs at percent (0 = as fast as the phone can), off returns to normal speed.
+// Ends with the game.
+void azh_set_fast_forward(bool on, int percent);
+// Save states of the running game, slots 0...10. Done between two frames (also while paused);
+// AZH_EVENT_STATE follows. false when no game runs or another one is still pending.
+bool azh_save_state(int slot);
+bool azh_load_state(int slot);
+// The running game's save states: [{"slot":n,"time":unix seconds,"ok":bool}] (ok false: made by a
+// different build, may not load). Free with azh_free
+char *azh_save_states_json(void);
 
 // Input. Buttons as a bit mask:
 enum azh_button {

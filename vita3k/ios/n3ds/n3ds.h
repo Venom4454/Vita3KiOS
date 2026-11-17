@@ -70,6 +70,14 @@ void v3k_n3ds_set_buttons(uint32_t mask);
 void v3k_n3ds_set_stick(int stick, float x, float y);
 void v3k_n3ds_touch(int phase, float x, float y);
 void v3k_n3ds_set_motion(float gx, float gy, float gz, float ax, float ay, float az);
+// Fast forward at percent of full speed (0 = as fast as the phone can); off: normal speed
+void v3k_n3ds_set_fast_forward(bool on, int percent);
+// Save states of the running game, slots 0...10 (the result arrives as event 5: a = 0 saved / 1
+// loaded, b = slot, text = the problem or NULL)
+bool v3k_n3ds_save_state(int slot);
+bool v3k_n3ds_load_state(int slot);
+// [{"slot":n,"time":unix seconds,"ok":bool}]. Free with v3k_free_string
+char *v3k_n3ds_save_states_json(void);
 // Adds play time when a session ends
 void v3k_n3ds_session_ended(const char *id, double seconds);
 

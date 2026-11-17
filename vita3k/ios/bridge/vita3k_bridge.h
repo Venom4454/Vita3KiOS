@@ -159,6 +159,9 @@ void v3k_request_screenshot(void);
 // Touches on the game go to the rear touchpad instead of the front screen
 void v3k_set_rear_touch(bool rear);
 bool v3k_rear_touch(void);
+// The running game uses PlayStation TV mode (Settings or the game's own settings): the touch controls
+// add L2, R2, L3 and R3, which only a PS TV controller has
+bool v3k_pstv_mode(void);
 // Portrait mode: pixels from the top of the screen to the game picture (negative: centred)
 void v3k_set_portrait_top(float pixels);
 
