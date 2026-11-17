@@ -677,20 +677,23 @@ final class N3DSGameViewController: UIViewController {
         let centre = width - gutter * 2
         let rowSpace: CGFloat = 34 // the icon buttons above the screens
 
-        // both stacked in the middle (iPad)
-        let stackWidth = min(centre, (height - rowSpace - 8) / 1.2)
+        // both stacked in the middle (iPad, iPhone Duo open), meeting at the middle of the window: on
+        // a foldable held half open like a laptop the fold runs there, between the screens like a 3DS
+        // hinge
+        let hinge: CGFloat = 10
+        let half = height / 2
+        let screenHeight = min(half - hinge / 2 - rowSpace, half - hinge / 2 - 8, centre * 0.6)
         // the big one alone
         let bigAspect: CGFloat = bottomScreenBig ? 4.0 / 3 : 5.0 / 3
         let bigHeight = min(height - rowSpace * 2, centre / bigAspect)
         let bigWidth = bigHeight * bigAspect
-        if stackWidth >= bigWidth * 0.85 {
-            let topSize = CGSize(width: stackWidth, height: stackWidth * 0.6)
-            let bottomSize = CGSize(width: stackWidth * 0.8, height: stackWidth * 0.6)
-            let y = rowSpace + (height - rowSpace - topSize.height - bottomSize.height) / 2
-            let first = bottomScreenBig ? bottomSize : topSize, second = bottomScreenBig ? topSize : bottomSize
-            let firstRect = CGRect(x: (width - first.width) / 2, y: y, width: first.width, height: first.height)
-            let secondRect = CGRect(x: (width - second.width) / 2, y: firstRect.maxY, width: second.width, height: second.height)
-            return ScreenPlan(top: bottomScreenBig ? secondRect : firstRect, bottom: bottomScreenBig ? firstRect : secondRect, mini: nil, gutter: gutter)
+        if screenHeight / 0.6 >= bigWidth * 0.75 {
+            let topSize = CGSize(width: screenHeight / 0.6, height: screenHeight)
+            let bottomSize = CGSize(width: screenHeight / 0.75, height: screenHeight)
+            let upper = bottomScreenBig ? bottomSize : topSize, lower = bottomScreenBig ? topSize : bottomSize
+            let upperRect = CGRect(x: (width - upper.width) / 2, y: half - hinge / 2 - upper.height, width: upper.width, height: upper.height)
+            let lowerRect = CGRect(x: (width - lower.width) / 2, y: half + hinge / 2, width: lower.width, height: lower.height)
+            return ScreenPlan(top: bottomScreenBig ? lowerRect : upperRect, bottom: bottomScreenBig ? upperRect : lowerRect, mini: nil, gutter: gutter)
         }
         let big = CGRect(x: (width - bigWidth) / 2, y: max(rowSpace, (height - bigHeight) / 2), width: bigWidth, height: bigHeight)
         let inset = max(safe.right * 0.45, 10)
@@ -704,7 +707,8 @@ final class N3DSGameViewController: UIViewController {
         super.viewDidLayoutSubviews()
         let bounds = view.bounds
         let safe = view.safeAreaInsets
-        let scale = view.window?.screen.scale ?? UIScreen.main.scale
+        // the display this window is on (a foldable has two)
+        let scale = view.traitCollection.displayScale > 0 ? view.traitCollection.displayScale : (view.window?.screen.scale ?? 2)
         var plan: ScreenPlan?
         if isPortrait {
             // the two screens stacked at the top (400x240 over 320x240), the controls below

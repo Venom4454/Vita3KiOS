@@ -744,7 +744,7 @@ final class ControlsOverlayView: UIView {
         v3k_set_game_paused(2, true)
         let alert = UIAlertController(title: "Quit game?", message: "Unsaved progress will be lost.", preferredStyle: .alert)
         alert.addAction(UIAlertAction(title: "Quit", style: .destructive) { [weak self] _ in
-            releaseAll()
+            self?.releaseAll()
             // the game closes faster running than paused
             self?.menuAlert = nil
             v3k_set_game_paused(2, false)
@@ -1133,7 +1133,7 @@ final class ControlsOverlayView: UIView {
 /// Root of the controls window: landscape like the game, and transparent to touches it doesn't use
 final class ControlsViewController: UIViewController {
     override func loadView() {
-        view = ControlsOverlayView(frame: UIScreen.main.bounds)
+        view = ControlsOverlayView(frame: .zero) // the window sizes it (a foldable's displays differ)
     }
     override var supportedInterfaceOrientations: UIInterfaceOrientationMask { PortraitMode.allowed ? [.landscape, .portrait] : .landscape }
     override var prefersStatusBarHidden: Bool { true }
