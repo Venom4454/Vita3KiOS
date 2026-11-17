@@ -235,6 +235,11 @@ final class LibraryModel: ObservableObject {
             if sorted != apps { apps = sorted }
         }
         fetch3DSArt()
+        // Cloud saves: once per app launch, both ways (newer saves from the user's other devices)
+        if !Self.cloudSyncedAtStart && !apps.isEmpty && CloudSaves.shared.isOn {
+            Self.cloudSyncedAtStart = true
+            CloudSaves.shared.syncAll(apps)
+        }
         if let json = takeString(v3k_storage_info_json()), let data = json.data(using: .utf8),
            let decoded = try? JSONDecoder().decode(StorageInfo.self, from: data) {
             storage = decoded
@@ -300,7 +305,14 @@ final class LibraryModel: ObservableObject {
         reload()
     }
 
+    private static var cloudSyncedAtStart = false
+
     func launch(_ app: GameApp) {
+        // Cloud saves: the newer save from the cloud first (Settings › Cloud saves)
+        CloudSaves.shared.beforeLaunch(app) { [weak self] in self?.launchNow(app) }
+    }
+
+    private func launchNow(_ app: GameApp) {
         if app.is3DS {
             N3DSLauncher.launch(app, model: self)
             return

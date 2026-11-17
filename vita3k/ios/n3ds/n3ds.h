@@ -78,6 +78,8 @@ bool v3k_n3ds_save_state(int slot);
 bool v3k_n3ds_load_state(int slot);
 // [{"slot":n,"time":unix seconds,"ok":bool}]. Free with v3k_free_string
 char *v3k_n3ds_save_states_json(void);
+// Where a game keeps its save (it may not exist yet), NULL for homebrew. Free with v3k_free_string
+char *v3k_n3ds_save_folder(const char *id);
 // Adds play time when a session ends
 void v3k_n3ds_session_ended(const char *id, double seconds);
 

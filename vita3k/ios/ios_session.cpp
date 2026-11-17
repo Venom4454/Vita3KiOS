@@ -326,6 +326,12 @@ ImportResult import_pending_files(const fs::path &import_dir) {
         if (ext == ".pup") {
             LOG_INFO("Installing firmware {}", name);
             ok = !install_pup(emuenv->vita_fs_path, file).empty();
+        } else if (ext == ".zip" && v3k_install_is_save(file.string().c_str())) {
+            // a game's save: put in place like Game settings › Import save data
+            char *text = nullptr;
+            ok = v3k_import_save_data_auto(file.string().c_str(), &text);
+            LOG_INFO("{}: {}", name, text ? text : "");
+            std::free(text);
         } else if (ext == ".vpk" || ext == ".zip") {
             LOG_INFO("Installing archive {}", name);
             const auto reinstall = [](const std::string &, const std::string &) { return true; };

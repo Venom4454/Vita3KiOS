@@ -264,7 +264,16 @@ int run(EmuEnvState &emuenv, app::AppSessionController &session, AppLaunchReques
 
         LOG_INFO("Booting game '{}'", launch_request.app_path);
 
-        if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_GAMEPAD | SDL_INIT_HAPTIC | SDL_INIT_SENSOR | SDL_INIT_CAMERA)) {
+#if defined(VITA3K_PLATFORM_IOS)
+        // iOS: the camera only when a game opens it (camera/src/camera.cpp). Starting it with every game
+        // registered Hinoki with the phone's camera service for the whole session, and while Hinoki
+        // sat in the background (kept alive by the JIT debugger or LiveContainer) the Camera app took
+        // photos seconds late.
+        constexpr SDL_InitFlags sdl_subsystems = SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_GAMEPAD | SDL_INIT_HAPTIC | SDL_INIT_SENSOR;
+#else
+        constexpr SDL_InitFlags sdl_subsystems = SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_GAMEPAD | SDL_INIT_HAPTIC | SDL_INIT_SENSOR | SDL_INIT_CAMERA;
+#endif
+        if (!SDL_Init(sdl_subsystems)) {
             LOG_ERROR("SDL_Init failed: {}", SDL_GetError());
             exit_code = -1;
             cleanup_launch(app::AppSessionStopReason::LaunchFailure);

@@ -10,43 +10,29 @@ struct SettingsView: View {
     @EnvironmentObject var model: LibraryModel
     @Environment(\.dismiss) private var dismiss
     @AppStorage("v3k.theme") private var themeName = AppTheme.midnight.rawValue
+    @ObservedObject private var cloud = CloudSaves.shared
+    @State private var search = ""
     /// Set when the settings are shown inside the PS Vita home screen instead of as a sheet
     var onDone: (() -> Void)?
 
     var body: some View {
         NavigationStack {
-            Form {
-                AppearanceSection()
-                MusicSection()
-                StorageSection()
-                TouchControlsSection()
-                EmulationSections()
-                MultiplayerSection()
-                AdhocSection()
-                Section {
-                    NavigationLink {
-                        AllPatchesView()
-                    } label: {
-                        Label("Patches", systemImage: "bandage")
+            List {
+                if search.isEmpty {
+                    ForEach(SettingsPage.groups, id: \.title) { group in
+                        Section(group.title) {
+                            ForEach(group.pages) { page in row(page) }
+                        }
                     }
-                    NavigationLink {
-                        PluginsView()
-                    } label: {
-                        Label("Plugins", systemImage: "puzzlepiece.extension")
+                } else {
+                    let found = SettingsPage.all.filter { $0.matches(search) }
+                    if found.isEmpty {
+                        Text("No settings match \u{201C}\(search)\u{201D}").foregroundStyle(.secondary)
                     }
-                    NavigationLink {
-                        N3DSSettingsView()
-                    } label: {
-                        Label("Nintendo 3DS", systemImage: "rectangle.split.1x2")
-                    }
-                } footer: {
-                    Text("Cheats and mods are set per game: long-press a game › Game settings, patches & saves. Plugins are .suprx/.skprx files from the PS Vita scene, for DLC loaders, ports and homebrew.")
+                    ForEach(found) { page in row(page) }
                 }
-                MemorySection()
-                JITSection()
-                CreditsSection()
-                AboutSection()
             }
+            .searchable(text: $search, placement: .navigationBarDrawer(displayMode: .automatic), prompt: "Search settings")
             .alert(model.lastMessage ?? "", isPresented: Binding(get: { model.lastMessage != nil }, set: { if !$0 { model.lastMessage = nil } })) {
                 Button("OK", role: .cancel) { model.lastMessage = nil }
             }
@@ -63,6 +49,160 @@ struct SettingsView: View {
             .toolbar(onDone == nil ? .automatic : .hidden, for: .navigationBar)
         }
         .tint(AppTheme(rawValue: themeName)?.accent ?? Theme.accent)
+    }
+
+    private func row(_ page: SettingsPage) -> some View {
+        NavigationLink {
+            page.destination
+                .environmentObject(model)
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: page.symbol)
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .frame(width: 30, height: 30)
+                    .background(RoundedRectangle(cornerRadius: 7, style: .continuous).fill(page.color.gradient))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(page.title)
+                    Text(subtitle(page)).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                }
+            }
+            .padding(.vertical, 2)
+        }
+    }
+
+    /// A line of live state under some pages
+    private func subtitle(_ page: SettingsPage) -> String {
+        switch page.id {
+        case "cloud":
+            if let folder = cloud.folderName { return cloud.syncing ? "Syncing…" : "On · \(folder)" }
+            return "Off · keep saves in iCloud Drive"
+        default:
+            return page.subtitle
+        }
+    }
+}
+
+/// One page of Settings: what it holds (for the list and the search) and what it shows
+@MainActor
+struct SettingsPage: Identifiable {
+    let id: String
+    let title: String
+    let subtitle: String
+    let symbol: String
+    let color: Color
+    let keywords: String
+    let content: @MainActor () -> AnyView
+
+    var destination: some View { content() }
+
+    func matches(_ text: String) -> Bool {
+        let words = text.lowercased().split(separator: " ")
+        let haystack = (title + " " + subtitle + " " + keywords).lowercased()
+        return words.allSatisfy { haystack.contains($0) }
+    }
+
+    struct Group {
+        let title: String
+        let pages: [SettingsPage]
+    }
+
+    static var all: [SettingsPage] { groups.flatMap(\.pages) }
+
+    static let groups: [Group] = [
+        Group(title: "General", pages: [
+            page("appearance", "Appearance & music", "Theme, home screen, menu music", "paintbrush.fill", .pink,
+                 "theme colour color accent home screen wallpaper background music song volume style vita bgm") {
+                SettingsForm("Appearance & music") {
+                    AppearanceSection()
+                    MusicSection()
+                }
+            },
+            page("storage", "Storage & files", "Where games and saves live, file picker", "externaldrive.fill", .gray,
+                 "storage folder external drive usb ssd microsd built-in file picker files app location") {
+                SettingsForm("Storage & files") { StorageSection() }
+            },
+            page("cloud", "Cloud saves", "", "icloud.fill", .blue,
+                 "icloud drive cloud sync saves backup google drive onedrive dropbox other device ipad") {
+                AnyView(CloudSavesView())
+            },
+        ]),
+        Group(title: "PS Vita", pages: [
+            page("vita-emulation", "Emulation, graphics & audio", "Resolution, filters, CPU, shaders, system language, game audio", "cpu.fill", .indigo,
+                 "resolution upscale filter fsr fxaa anisotropic shader cache async cpu fast thermal keep cool textures pvrtc v-sync vsync fps 60 language enter button circle cross pstv ps tv audio volume performance overlay hud") {
+                SettingsForm("Emulation, graphics & audio") { EmulationSections() }
+            },
+            page("vita-controls", "Controls", "Touch controls, sticks, macros, controller mapping", "gamecontroller.fill", .orange,
+                 "touch controls opacity size theme sticks floating screen halves zones touch area reach macro buttons aim haptics vibrate portrait tv mode rear touchpad motion gyro controller mapping keyboard") {
+                SettingsForm("PS Vita controls") { TouchControlsSection() }
+            },
+            page("vita-multiplayer", "Multiplayer", "Ad hoc play between phones", "person.2.fill", .green,
+                 "multiplayer ad hoc adhoc network wifi local play friends ip address") {
+                SettingsForm("Multiplayer") {
+                    MultiplayerSection()
+                    AdhocSection()
+                }
+            },
+            page("vita-patches", "Patches", "Game patches from the Vita3K patch list", "bandage.fill", .red,
+                 "patches fixes 60fps cheats mods") {
+                AnyView(AllPatchesView())
+            },
+            page("vita-plugins", "Plugins", "taiHEN plugins: DLC loaders, ports, homebrew", "puzzlepiece.extension.fill", .purple,
+                 "plugins suprx skprx taihen kubridge dlc ports homebrew") {
+                AnyView(PluginsView())
+            },
+        ]),
+        Group(title: "Nintendo 3DS", pages: [
+            page("3ds", "Nintendo 3DS", "Keys, screens, controls, graphics, fast forward", "rectangle.split.1x2.fill", Color(red: 0.85, green: 0.15, blue: 0.2),
+                 "3ds nintendo azahar keys aes seeddb encrypted cia screens layout swap controls circle pad resolution texture filter async presentation battery quality fast forward save states new 3ds region cpu clock jit volume stretching") {
+                AnyView(N3DSSettingsView())
+            },
+        ]),
+        Group(title: "Performance", pages: [
+            page("memory", "Memory & RAM helpers", "More memory for heavy games, RAM checker", "memorychip.fill", .teal,
+                 "memory ram helpers extensions jetsam limit increased memory limit checker crash") {
+                SettingsForm("Memory & RAM helpers") { MemorySection() }
+            },
+            page("jit", "JIT", "StikDebug, built-in JIT, status", "bolt.fill", .yellow,
+                 "jit stikdebug debugger built-in jit livecontainer strata sidestore speed") {
+                SettingsForm("JIT") { JITSection() }
+            },
+        ]),
+        Group(title: "About", pages: [
+            page("about", "About Hinoki", "Version, logs, credits, Discord", "info.circle.fill", .gray,
+                 "about version logs log crash report credits vita3k tsubomi azahar discord ko-fi support") {
+                SettingsForm("About Hinoki") {
+                    AboutSection()
+                    CreditsSection()
+                }
+            },
+        ]),
+    ]
+
+    private static func page<Content: View>(_ id: String, _ title: String, _ subtitle: String, _ symbol: String, _ color: Color,
+                                            _ keywords: String, @ViewBuilder _ content: @escaping @MainActor () -> Content) -> SettingsPage {
+        SettingsPage(id: id, title: title, subtitle: subtitle, symbol: symbol, color: color, keywords: keywords, content: { AnyView(content()) })
+    }
+}
+
+/// A settings page made of the sections below, with the library's message alert
+struct SettingsForm<Content: View>: View {
+    @EnvironmentObject var model: LibraryModel
+    let title: String
+    let content: Content
+
+    init(_ title: String, @ViewBuilder content: () -> Content) {
+        self.title = title
+        self.content = content()
+    }
+
+    var body: some View {
+        Form { content }
+            .navigationTitle(title)
+            .navigationBarTitleDisplayMode(.inline)
+            .alert(model.lastMessage ?? "", isPresented: Binding(get: { model.lastMessage != nil }, set: { if !$0 { model.lastMessage = nil } })) {
+                Button("OK", role: .cancel) { model.lastMessage = nil }
+            }
     }
 }
 

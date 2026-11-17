@@ -526,6 +526,8 @@ final class MenuMusic: ObservableObject {
     func libraryShown() {
         wanted = true
         resume()
+        // No music: the audio session goes back to iOS (other apps' videos play normally)
+        if !enabled { v3k_audio_session_idle() }
     }
 
     /// A game is starting: fade out and stop
@@ -614,7 +616,12 @@ final class MenuMusic: ObservableObject {
         synth?.fadeOut()
         VitaBGM.shared.pause()
         titleTimer?.invalidate()
-        let work = DispatchWorkItem { [weak self] in self?.engine.stop() }
+        let work = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            engine.stop()
+            // Turned off in the library: nothing plays any more, the session goes back to iOS
+            if wanted && !enabled { v3k_audio_session_idle() }
+        }
         stopWork = work
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.0, execute: work)
     }

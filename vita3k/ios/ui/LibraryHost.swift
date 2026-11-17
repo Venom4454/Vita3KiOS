@@ -31,6 +31,8 @@ enum LibraryHost {
 
     static func show() {
         BackgroundMotion.shared.setActive(true)
+        // back from a game: its save goes up to the cloud folder (if set up)
+        CloudSaves.shared.gameEnded()
         if window == nil {
             let newWindow: UIWindow
             if let scene = PhoneScene.current {

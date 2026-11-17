@@ -974,6 +974,7 @@ bool v3k_n3ds_boot(const char *id, void *metal_layer, int width, int height, flo
         write_fields(library_dir() / id / "info.txt", fields);
     }
     LOG_INFO("3DS: starting {} ({}), {}x{} {}", id, file, width, height, portrait ? "portrait" : "landscape");
+    LOG_INFO("3DS: {}", ios::game_audio_started());
     return g_core.azh_boot(file.c_str(), metal_layer, width, height, scale, portrait, events, context);
 }
 
@@ -1021,6 +1022,17 @@ void v3k_n3ds_set_motion(float gx, float gy, float gz, float ax, float ay, float
         g_core.azh_set_motion(gx, gy, gz, ax, ay, az);
 }
 
+char *v3k_n3ds_save_folder(const char *id) {
+    // Installed and cartridge games keep their save in the virtual SD card under their title ID
+    if (!id || std::strlen(id) != 16 || !std::all_of(id, id + 16, [](char c) { return std::isxdigit(static_cast<unsigned char>(c)); }))
+        return nullptr;
+    std::string lower(id);
+    std::transform(lower.begin(), lower.end(), lower.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    const fs::path folder = azahar_dir() / "sdmc" / "Nintendo 3DS" / "00000000000000000000000000000000" / "00000000000000000000000000000000" / "title"
+        / lower.substr(0, 8) / lower.substr(8) / "data";
+    return dup_string(folder.string());
+}
+
 void v3k_n3ds_set_fast_forward(bool on, int percent) {
     if (g_core.handle)
         g_core.azh_set_fast_forward(on, percent);
@@ -1045,6 +1057,7 @@ char *v3k_n3ds_save_states_json(void) {
 }
 
 void v3k_n3ds_session_ended(const char *id, double seconds) {
+    ios::game_audio_ended();
     if (!id || !valid_id(id) || seconds <= 0)
         return;
     std::lock_guard lock(g_mutex);

@@ -57,6 +57,11 @@ void set_activity_callback(void (*callback)(bool active));
 
 // Sets the AVAudioSession to Playback at 48 kHz and activates it. Returns a line for the log.
 std::string configure_audio_session();
+// A game (PS Vita or 3DS) starts: the audio session is set up and activated (returns a line for the
+// log). After it ends, the library hands the session back to iOS unless its music plays
+// (v3k_audio_session_idle), so nothing holds the phone's audio while Hinoki only shows menus.
+std::string game_audio_started();
+void game_audio_ended();
 void set_pending_launch(const std::string &title_id);
 
 // HTTPS GET through NSURLSession (system certificates and proxies; the bundled OpenSSL has no CA list

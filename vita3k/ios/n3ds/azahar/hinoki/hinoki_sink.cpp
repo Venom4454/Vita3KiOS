@@ -21,6 +21,12 @@ namespace AudioCore {
 
 namespace {
 
+class HinokiSink;
+// The sink of the running game (one at a time), so pausing can stop the audio unit
+std::mutex g_sink_mutex;
+HinokiSink* g_sink = nullptr;
+bool g_sink_wanted_running = true;
+
 class HinokiSink final : public Sink {
 public:
     HinokiSink() {
@@ -64,9 +70,19 @@ public:
             return;
         }
         LOG_INFO(Audio_Sink, "Audio out: RemoteIO at {} Hz", native_sample_rate);
+        running = true;
+        std::scoped_lock lock{g_sink_mutex};
+        g_sink = this;
+        if (!g_sink_wanted_running)
+            SetRunning(false);
     }
 
     ~HinokiSink() override {
+        {
+            std::scoped_lock lock{g_sink_mutex};
+            if (g_sink == this)
+                g_sink = nullptr;
+        }
         if (unit) {
             AudioOutputUnitStop(unit);
             AudioUnitUninitialize(unit);
@@ -76,6 +92,18 @@ public:
 
     unsigned int GetNativeSampleRate() const override {
         return native_sample_rate;
+    }
+
+    // HINOKI: a paused game (or one off screen) stops the audio unit altogether. A running unit, even
+    // playing silence, kept the phone's audio system busy: the audio session could not be handed back,
+    // and other apps' videos would not play while Hinoki sat in the background.
+    void SetRunning(bool run) {
+        if (!unit || run == running)
+            return;
+        const OSStatus status = run ? AudioOutputUnitStart(unit) : AudioOutputUnitStop(unit);
+        if (status == noErr)
+            running = run;
+        LOG_INFO(Audio_Sink, "Audio out {} ({})", run ? "resumed" : "stopped", static_cast<int>(status));
     }
 
     void SetCallback(std::function<void(s16*, std::size_t)> cb) override {
@@ -101,6 +129,7 @@ private:
     }
 
     AudioComponentInstance unit = nullptr;
+    bool running = false;
     std::mutex callback_mutex;
     std::function<void(s16*, std::size_t)> callback;
 };
@@ -113,6 +142,13 @@ std::unique_ptr<Sink> CreateHinokiSink(std::string_view) {
 
 std::vector<std::string> ListHinokiSinkDevices() {
     return {"Hinoki"};
+}
+
+void HinokiSinkSetRunning(bool run) {
+    std::scoped_lock lock{g_sink_mutex};
+    g_sink_wanted_running = run;
+    if (g_sink)
+        g_sink->SetRunning(run);
 }
 
 } // namespace AudioCore

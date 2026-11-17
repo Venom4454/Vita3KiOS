@@ -108,6 +108,7 @@ enum N3DSLauncher {
         }
         guard let presenter = topController() else { return }
         let controller = N3DSGameViewController(app: app, jit: model.jitEnabled) {
+            CloudSaves.shared.gameEnded()
             MenuMusic.shared.libraryShown()
             BackgroundMotion.shared.setActive(true)
             model.reload()

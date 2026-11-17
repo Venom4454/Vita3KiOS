@@ -201,6 +201,42 @@ std::string read_zrif(const fs::path &pkg_path) {
     return zrif;
 }
 
+// A zip holding a game's save rather than a game (no eboot.bin, no modules, no packages) with a folder
+// named after an installed game's save (PCSE00120, often inside ux0/user/00/savedata): that game's
+// title ID, or empty. Such a zip dropped in with + or into the Import folder went through the game
+// installer before, which failed on it.
+std::string save_archive_owner(const fs::path &zip_path) {
+    if (lower_extension(zip_path) != ".zip")
+        return {};
+    mz_zip_archive zip{};
+    if (!mz_zip_reader_init_file(&zip, zip_path.string().c_str(), 0))
+        return {};
+    std::set<std::string> parts;
+    bool game = false;
+    const mz_uint count = mz_zip_reader_get_num_files(&zip);
+    for (mz_uint i = 0; i < count && !game; i++) {
+        mz_zip_archive_file_stat stat;
+        if (!mz_zip_reader_file_stat(&zip, i, &stat))
+            continue;
+        std::string name = string_utils::tolower(stat.m_filename);
+        std::replace(name.begin(), name.end(), '\\', '/');
+        if (name.ends_with("eboot.bin") || name.find("sce_module/") != std::string::npos || name.ends_with(".pkg")
+            || name.ends_with(".vpk") || name.find("sce_sys/package/") != std::string::npos)
+            game = true;
+        for (const auto &part : fs::path(name))
+            parts.insert(part.string());
+    }
+    mz_zip_reader_end(&zip);
+    if (game)
+        return {};
+    std::vector<std::string> owners;
+    for (const auto &app : ios::list_apps()) {
+        if ((!app.savedata.empty() && parts.contains(string_utils::tolower(app.savedata))) || parts.contains(string_utils::tolower(app.title_id)))
+            owners.push_back(app.title_id);
+    }
+    return owners.size() == 1 ? owners.front() : std::string{};
+}
+
 struct InstallOutcome {
     int installed = 0;
     int failed = 0;
@@ -810,6 +846,12 @@ bool v3k_install(const char *path, const char *zrif, v3k_progress_fn progress, v
         if (message)
             *message = dup_string("The emulator is not initialised.");
         return false;
+    }
+
+    // A save, not a game: it goes to that game's saves (the current one is backed up first)
+    if (const std::string owner = save_archive_owner(fs::path(path)); !owner.empty()) {
+        LOG_INFO("{} is the save data of {}: importing it as a save", path, owner);
+        return v3k_import_save_data(owner.c_str(), path, message);
     }
 
     InstallOutcome outcome;
@@ -1587,6 +1629,28 @@ bool v3k_import_save_data(const char *title_id, const char *path, char **message
     const size_t files = count_files(target);
     LOG_INFO("Imported the save data of {} from {} ({} files)", app->title_id, picked.string(), files);
     return result(true, fmt::format("Save data imported ({} file{}).{}", files, files == 1 ? "" : "s", kept));
+}
+
+char *v3k_save_folder(const char *title_id) {
+    auto *emuenv = ios::get_emuenv();
+    const auto app = app_for(title_id);
+    if (!emuenv || !app || app->savedata.empty())
+        return nullptr;
+    return dup_string(save_folder(*emuenv, *app).string());
+}
+
+bool v3k_install_is_save(const char *path) {
+    return path && !save_archive_owner(fs::path(path)).empty();
+}
+
+bool v3k_import_save_data_auto(const char *path, char **message) {
+    const std::string owner = path ? save_archive_owner(fs::path(path)) : std::string{};
+    if (owner.empty()) {
+        if (message)
+            *message = dup_string("This is not the save of an installed game.");
+        return false;
+    }
+    return v3k_import_save_data(owner.c_str(), path, message);
 }
 
 // ---- Game patches and cheats (github.com/Vita3K/vita3k-patches) ----

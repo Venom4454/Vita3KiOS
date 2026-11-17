@@ -25,6 +25,7 @@
 #include <util/log.h>
 
 #include <SDL3/SDL_camera.h>
+#include <SDL3/SDL_init.h>
 #include <SDL3/SDL_timer.h>
 
 struct stbi_deleter {
@@ -62,8 +63,15 @@ Camera::Camera()
     : pImpl(std::make_unique<CameraImpl>()) {}
 Camera::~Camera() = default;
 
+// The camera subsystem starts the first time a game uses the camera (iOS leaves it out of SDL_Init)
+static void ensure_camera_subsystem() {
+    if (!(SDL_WasInit(SDL_INIT_CAMERA) & SDL_INIT_CAMERA) && !SDL_InitSubSystem(SDL_INIT_CAMERA))
+        LOG_ERROR("SDL camera subsystem failed to start: {}", SDL_GetError());
+}
+
 static bool init_web_camera(Camera *self) {
     // open web camera via SDL3
+    ensure_camera_subsystem();
     int num_cameras;
     SDL_CameraListPtr cameras(SDL_GetCameras(&num_cameras));
     if (!cameras) {
@@ -420,6 +428,7 @@ void init_default_cameras(Config &cfg) {
     if (!((cfg.front_camera_type == WebCamera && cfg.front_camera_id.empty()) || (cfg.back_camera_type == WebCamera && cfg.back_camera_id.empty())))
         return;
     LOG_DEBUG("Initialize default cameras...");
+    ensure_camera_subsystem();
     int num_cameras;
     SDL_CameraListPtr cameras(SDL_GetCameras(&num_cameras));
     for (int i = 0; i < num_cameras; i++) {

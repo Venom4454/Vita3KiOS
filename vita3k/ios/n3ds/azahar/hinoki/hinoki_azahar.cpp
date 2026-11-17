@@ -434,6 +434,7 @@ bool ToBool(const std::string& value) {
 
 namespace AudioCore {
 std::unique_ptr<Sink> CreateHinokiSink(std::string_view);
+void HinokiSinkSetRunning(bool run);
 }
 
 extern "C" {
@@ -770,6 +771,7 @@ bool azh_boot(const char* path, void* layer, int width, int height, float scale,
 
     g_stop = false;
     g_paused = false;
+    AudioCore::HinokiSinkSetRunning(true);
     g_running = true;
     g_program_id = 0;
     g_state_request = 0;
@@ -800,6 +802,7 @@ void azh_set_paused(bool paused) {
         g_paused = paused;
     }
     g_pause_cv.notify_all();
+    AudioCore::HinokiSinkSetRunning(!paused);
 }
 
 void azh_stop(void) {

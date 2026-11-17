@@ -162,6 +162,9 @@ bool v3k_rear_touch(void);
 // The running game uses PlayStation TV mode (Settings or the game's own settings): the touch controls
 // add L2, R2, L3 and R3, which only a PS TV controller has
 bool v3k_pstv_mode(void);
+// The library shows with no music playing: the audio session is handed back to iOS (no-op while a
+// game runs)
+void v3k_audio_session_idle(void);
 // Portrait mode: pixels from the top of the screen to the game picture (negative: centred)
 void v3k_set_portrait_top(float pixels);
 
@@ -204,6 +207,13 @@ char *v3k_export_save_data(const char *title_id, char **message);
 // files, its PCSE00120/ folder, savedata/, a whole ux0/). The current save is copied to
 // Documents/Save Backups first; encrypted saves and other games' saves are refused with a reason.
 bool v3k_import_save_data(const char *title_id, const char *path, char **message);
+// Where a game keeps its save (ux0/user/00/savedata/<save ID>; it may not exist yet), or NULL for a
+// game without save data. Free with v3k_free_string
+char *v3k_save_folder(const char *title_id);
+// A .zip holding the save of an installed game (not a game): + and the Import folder import it as that
+// game's save
+bool v3k_install_is_save(const char *path);
+bool v3k_import_save_data_auto(const char *path, char **message);
 
 // ---- Game patches and cheats (github.com/Vita3K/vita3k-patches) ----
 // Downloads the patch list and the cheat files in one go. Blocking: run off the main thread.

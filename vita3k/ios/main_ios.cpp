@@ -203,9 +203,8 @@ int main(int argc, char *argv[]) {
     ios::observe_app_state();
     ios::set_activity_callback(on_app_activity);
 
-    // Activate the audio session before SDL opens the audio device, so the audio unit actually runs
-    // (otherwise games that wait on audio playback freeze). From Tsubomi.
-    LOG_INFO("{}", ios::configure_audio_session());
+    // The audio session is activated when a game starts (before SDL opens its audio device, so the
+    // audio unit actually runs; from Tsubomi), not at launch: the library only takes it for its music.
 
     // Prepare the JIT region pool now, while StikDebug is still attached: it usually detaches within
     // a minute of launch, and new executable regions can't be prepared after that (iOS 26).
@@ -512,7 +511,9 @@ int main(int argc, char *argv[]) {
             setenv("V3K_PRECISE_SHADER_MATH", "1", 1);
         const bool mapping_was_on = v3k_game_uses_memory_mapping(title_id.c_str());
         const bool async_was_on = v3k_game_uses_async_shaders(title_id.c_str());
+        LOG_INFO("{}", ios::game_audio_started());
         const int result = sdl_frontend::run(*emuenv, session_controller, AppLaunchRequest{ .app_path = title_id }, hooks);
+        ios::game_audio_ended();
         session_over = true;
         watchdog.join();
         {

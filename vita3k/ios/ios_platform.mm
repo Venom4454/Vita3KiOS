@@ -194,24 +194,15 @@ void set_activity_callback(void (*callback)(bool active)) {
 // return. Deactivation fails while audio is still running, so it is tried again once Vita3K is in the
 // background (the game's audio device and the menu music have stopped by then).
 static std::atomic<bool> audio_session_released{ false };
+// A game (PS Vita or 3DS) is running and needs the session
+static std::atomic<bool> session_wanted{ false };
 
-// Off screen, keep the session released: anything that takes it back while the app is away (a
-// notification handler, a late audio callback) is undone, for as long as the app keeps running in
-// the background. Quietly: this used to pass NotifyOthersOnDeactivation every two seconds, and each
-// one told the app on screen it could resume its audio. Discord's video player restarted on every
-// one of them and never got past 0:00 (videos "not playing in other apps" while Hinoki ran in the
-// background). Other apps are told once, when the session is first handed back.
-static void keep_audio_session_released(unsigned round = 0) {
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-        if (app_activity::gpu_allowed().load() || !audio_session_released)
-            return;
-        NSError *error = nil;
-        if (![AVAudioSession.sharedInstance setActive:NO error:&error])
-            NSLog(@"Hinoki: audio session still in use off screen: %@", error);
-        if (round < 240)
-            keep_audio_session_released(round + 1);
-    });
-}
+// Once handed back, the session is left alone: an earlier version deactivated it again every five
+// seconds for twenty minutes while Hinoki sat in the background. On iOS 27 each of those calls went
+// through the phone's audio system, and other apps' videos would not start (and the Camera app took
+// photos late) for as long as it ran. What used to take the session back in the background is fixed
+// at the source instead (SDL never restarts audio off screen, the menu music only plays on screen,
+// the 3DS core stops its audio unit when paused).
 
 static void release_audio_session(unsigned attempt = 0) {
     if (audio_session_released)
@@ -219,15 +210,15 @@ static void release_audio_session(unsigned attempt = 0) {
     NSError *error = nil;
     if ([AVAudioSession.sharedInstance setActive:NO withOptions:AVAudioSessionSetActiveOptionNotifyOthersOnDeactivation error:&error]) {
         audio_session_released = true;
-        keep_audio_session_released();
         return;
     }
-    // Deactivation is refused while anything is still playing. Keep trying while Vita3K is off
-    // screen, so the session is not left active (which stops other apps' videos) after one failure.
-    NSLog(@"Vita3K: audio session release failed (attempt %u): %@", attempt + 1, error);
-    if (attempt >= 240)
+    // Deactivation is refused while anything is still playing (a game's audio stopping on its own
+    // queue). Try again shortly, then less often, for two minutes at most.
+    NSLog(@"Hinoki: audio session release failed (attempt %u): %@", attempt + 1, error);
+    if (attempt >= 40)
         return;
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+    const double delay = attempt < 10 ? 0.5 : 5.0;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(delay * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
         if (!app_activity::gpu_allowed().load() && !audio_session_released)
             release_audio_session(attempt + 1);
     });
@@ -236,7 +227,10 @@ static void release_audio_session(unsigned attempt = 0) {
 static void reclaim_audio_session() {
     if (!audio_session_released.exchange(false))
         return;
-    configure_audio_session();
+    // Only when something needs it: a game running (its audio comes back with it). The library's
+    // music takes the session itself when it plays.
+    if (session_wanted.load())
+        configure_audio_session();
 }
 
 static void set_app_active(bool active) {
@@ -330,6 +324,32 @@ std::string configure_audio_session() {
         return result + "Audio session active (Playback), " + std::to_string(static_cast<int>(session.sampleRate)) + " Hz";
     }
 }
+
+std::string game_audio_started() {
+    session_wanted = true;
+    audio_session_released = false;
+    return configure_audio_session();
+}
+
+void game_audio_ended() {
+    session_wanted = false;
+}
+
+} // namespace ios
+
+// The library is on screen with its music off (or the music was just turned off): nothing plays, so
+// the session goes back to iOS and other apps are told they can play again. Never while a game runs.
+extern "C" void v3k_audio_session_idle(void) {
+    dispatch_async(dispatch_get_main_queue(), ^{
+        if (ios::session_wanted.load())
+            return;
+        NSError *error = nil;
+        if (![AVAudioSession.sharedInstance setActive:NO withOptions:AVAudioSessionSetActiveOptionNotifyOthersOnDeactivation error:&error])
+            NSLog(@"Hinoki: audio session not handed back in the library: %@", error);
+    });
+}
+
+namespace ios {
 
 bool is_jit_enabled() {
     constexpr unsigned int CS_OPS_STATUS = 0;
