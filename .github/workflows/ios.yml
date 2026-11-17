@@ -47,10 +47,80 @@ env:
   HOMEBREW_NO_INSTALL_CLEANUP: 1
 
 jobs:
+  # The 3DS core (Azahar, vita3k/ios/n3ds/azahar) as a dynamic library. Rebuilt only when its sources
+  # change; otherwise the last one is reused from the cache.
+  core3ds:
+    name: Build 3DS core
+    runs-on: macos-latest
+    timeout-minutes: 150
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Cache key
+        id: key
+        run: echo "hash=${{ hashFiles('vita3k/ios/n3ds/azahar/**', '.ci/build-azahar-ios.sh') }}" >> "$GITHUB_OUTPUT"
+
+      - name: Restore the built core
+        id: built
+        uses: actions/cache/restore@v6
+        with:
+          path: artifacts-3ds
+          key: core3ds-v1-${{ steps.key.outputs.hash }}
+
+      - name: Set up tools
+        if: steps.built.outputs.cache-hit != 'true'
+        id: ccache
+        run: |
+          brew install ninja ccache || true
+          ccache --set-config=max_size=2G
+          ccache --set-config=compiler_check=content
+          ccache --set-config=sloppiness=pch_defines,time_macros,include_file_mtime,include_file_ctime
+          echo "dir=$(ccache -k cache_dir)" >> "$GITHUB_OUTPUT"
+
+      - name: Restore ccache
+        if: steps.built.outputs.cache-hit != 'true'
+        uses: actions/cache/restore@v6
+        with:
+          path: ${{ steps.ccache.outputs.dir }}
+          key: ccache-azahar-${{ github.sha }}
+          restore-keys: ccache-azahar-
+
+      - name: Build the 3DS core
+        if: steps.built.outputs.cache-hit != 'true'
+        run: |
+          ccache -z
+          AZAHAR_WORK_DIR="$RUNNER_TEMP/azahar" bash ./.ci/build-azahar-ios.sh artifacts-3ds
+          ccache -s
+
+      - name: Save ccache
+        if: always() && steps.built.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: ${{ steps.ccache.outputs.dir }}
+          key: ccache-azahar-${{ github.sha }}
+
+      - name: Save the built core
+        if: steps.built.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: artifacts-3ds
+          key: core3ds-v1-${{ steps.key.outputs.hash }}
+
+      - name: Upload the 3DS core
+        uses: actions/upload-artifact@v7
+        with:
+          name: azahar-core
+          path: artifacts-3ds/libazahar_hinoki.dylib
+          if-no-files-found: error
+
   ipa:
     name: Build IPA
     runs-on: macos-latest
     timeout-minutes: 150
+    needs: core3ds
+    # the IPA is built even if the 3DS core failed (the app then says the core is missing)
+    if: ${{ !cancelled() }}
 
     steps:
       - uses: actions/checkout@v7
@@ -122,9 +192,17 @@ jobs:
           key: ccache-ios-${{ steps.paths.outputs.image }}-${{ github.sha }}
           restore-keys: ccache-ios-${{ steps.paths.outputs.image }}-
 
+      - name: Download the 3DS core
+        continue-on-error: true
+        uses: actions/download-artifact@v8
+        with:
+          name: azahar-core
+          path: ${{ runner.temp }}/azahar-core
+
       - name: Build IPA
         run: |
           ccache -z
+          export AZAHAR_DYLIB="$RUNNER_TEMP/azahar-core/libazahar_hinoki.dylib"
           bash ./.ci/build-ios.sh artifacts
           ccache -s
 

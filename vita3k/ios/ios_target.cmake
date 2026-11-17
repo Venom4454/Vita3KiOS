@@ -14,6 +14,8 @@ set(VITA3K_IOS_SWIFT_SOURCES
 	ios/ui/VitaButtonMapView.swift
 	ios/ui/PluginsView.swift
 	ios/ui/HinokiFilePicker.swift
+	ios/ui/N3DSGameView.swift
+	ios/ui/N3DSSettingsView.swift
 	ios/ui/TouchControls.swift
 	ios/ui/MenuMusic.swift
 	ios/ui/GameSettingsView.swift
@@ -47,6 +49,10 @@ add_executable(vita3k MACOSX_BUNDLE
 	ios/ramhelper/protocol.h
 	ios/bridge/vita3k_bridge.cpp
 	ios/bridge/vita3k_bridge.h
+	ios/n3ds/n3ds.cpp
+	ios/n3ds/n3ds.h
+	ios/n3ds/ctr_crypto.cpp
+	ios/n3ds/ctr_crypto.h
 	${VITA3K_IOS_SWIFT_SOURCES}
 	interface.cpp
 	performance.cpp
@@ -59,6 +65,7 @@ target_link_libraries(vita3k PRIVATE
 	pugixml::pugixml
 	moltenvk_static
 	codec
+	crypto
 	"-framework Foundation"
 	"-framework UIKit"
 	"-framework SwiftUI"

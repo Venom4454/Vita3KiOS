@@ -101,6 +101,15 @@ if [[ ! -d "$app_path/PlugIns/V3KRamHelper.appex" ]]; then
     fi
 fi
 
+# ---- 3DS core (Azahar, built by .ci/build-azahar-ios.sh) ----
+if [[ -n "${AZAHAR_DYLIB:-}" && -f "$AZAHAR_DYLIB" ]]; then
+    mkdir -p "$app_path/Frameworks"
+    cp "$AZAHAR_DYLIB" "$app_path/Frameworks/libazahar_hinoki.dylib"
+    echo "Embedded the 3DS core ($(du -h "$AZAHAR_DYLIB" | cut -f1))"
+else
+    echo "No 3DS core to embed: 3DS games won't run in this build"
+fi
+
 # ---- App icon: Hinoki ----
 icon_work="$(mktemp -d)"
 plist="$app_path/Info.plist"

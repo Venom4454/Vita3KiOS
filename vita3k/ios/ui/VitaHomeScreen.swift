@@ -1566,7 +1566,7 @@ private struct VitaInfoStrip: View {
                     .font(VitaFont.font(space.len(22), bold: true))
                     .lineLimit(1)
                 HStack(spacing: space.len(12)) {
-                    Text("\(app.titleId) · v\(app.version)")
+                    Text(app.is3DS ? (app.version == "Homebrew" ? "3DS homebrew" : "Nintendo 3DS · \(app.titleId)") : "\(app.titleId) · v\(app.version)")
                     Label(app.playTimeText, systemImage: "clock")
                     if app.lastPlayed > 0 {
                         Label(Date(timeIntervalSince1970: TimeInterval(app.lastPlayed)).formatted(date: .abbreviated, time: .omitted), systemImage: "calendar")
@@ -1890,7 +1890,7 @@ struct VitaPanel: View {
     private var contentManager: some View {
         ScrollView {
             VStack(spacing: space.len(12)) {
-                row("doc.badge.plus", "Install from files", "VPK, ZIP, PKG, PUP firmware, licenses, .suprx/.skprx plugins", action: importFiles)
+                row("doc.badge.plus", "Install from files", "VPK, ZIP, PKG, PUP, licenses, plugins, 3DS games", action: importFiles)
                 row("folder.badge.plus", "Install a game folder", "A decrypted game folder or an existing Vita3K folder", action: importFolder)
                 row("key.horizontal.fill", "Enter a zRIF key", "For a PKG that needs its license key", action: enterZrif)
                 HStack(spacing: space.len(10)) {

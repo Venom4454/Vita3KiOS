@@ -149,6 +149,7 @@ If Hinoki is useful to you, you can buy me a coffee on **[Ko-fi](https://ko-fi.c
 ## Credits
 
 - **[Vita3K](https://github.com/Vita3K/Vita3K)** and its contributors: the emulator this app is built on. Please support the upstream project.
+- **[Azahar](https://github.com/azahar-emu/azahar)** (from Citra) and its contributors: the Nintendo 3DS emulator behind the 3DS side, built as a separate library (`vita3k/ios/n3ds/azahar`). GPL.
 - **[Tsubomi](https://github.com/125hz/Tsubomi)** by **125hz**: the iOS 26 JIT implementation and JIT region pool, guest memory pre-reservation, the iOS audio session setup and the high-density game window.
 - **[MrBouza](https://github.com/MrBouza)**: fixed FSR on iOS (PR #1), the on-screen keyboard for game text input (PR #2), game audio after switching apps (PR #3), fewer JIT caches on low-memory devices (PR #4), the widescreen mode (PR #5) and the in-game performance overlay switch (PR #6), and fixed the 16 MB JIT cache limit.
 - **MeloNX** by **Stossy11**: the RAM helper approach (memory lent by helper processes) and the one-tap JIT enabler links.
@@ -157,6 +158,6 @@ If Hinoki is useful to you, you can buy me a coffee on **[Ko-fi](https://ko-fi.c
 
 ## Legal
 
-Hinoki doesn't include any games, firmware or keys. Only use content you dumped from hardware you own. This project isn't affiliated with or endorsed by Sony Interactive Entertainment. "PlayStation" and "PS Vita" are trademarks of their respective owners.
+Hinoki doesn't include any games, firmware or keys. Only use content you dumped from hardware you own. This project isn't affiliated with or endorsed by Sony Interactive Entertainment or Nintendo. "PlayStation", "PS Vita" and "Nintendo 3DS" are trademarks of their respective owners. 3DS keys are never included: encrypted 3DS games are decrypted only with keys dumped from your own console.
 
 Licensed under the GNU General Public License v2 or later, like Vita3K. See [COPYING.txt](COPYING.txt).

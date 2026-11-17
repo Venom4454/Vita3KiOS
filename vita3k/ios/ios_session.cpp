@@ -19,6 +19,7 @@
 #include "archive.h"
 #include "bridge/vita3k_bridge.h"
 #include "crash_report.h"
+#include "n3ds/n3ds.h"
 
 #include <compat/functions.h>
 #include <compat/state.h>
@@ -339,6 +340,13 @@ ImportResult import_pending_files(const fs::path &import_dir) {
             LOG_INFO("Installing package {}", name);
             std::string zrif = read_zrif_for(file);
             ok = install_pkg(file, *emuenv, zrif);
+        } else if (n3ds::is_3ds_file(file)) {
+            LOG_INFO("Importing 3DS file {}", name);
+            std::string message;
+            ok = n3ds::import_file(file, nullptr, message);
+            LOG_INFO("{}: {}", name, message);
+            if (ok && !std::filesystem::exists(file))
+                continue; // moved into the 3DS library
         } else if (ext == ".suprx" || ext == ".skprx") {
             LOG_INFO("Adding plugin {}", name);
             ok = v3k_add_plugin(file.string().c_str(), nullptr, nullptr);

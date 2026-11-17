@@ -350,8 +350,12 @@ struct GameInfoView: View {
                     }
                 }
                 Section("Details") {
-                    if !app.version.isEmpty { LabeledContent("Version", value: app.version) }
-                    if !app.category.isEmpty { LabeledContent("Type", value: app.category) }
+                    if app.is3DS {
+                        LabeledContent("System", value: app.version == "Homebrew" ? "Nintendo 3DS (homebrew)" : "Nintendo 3DS")
+                    } else {
+                        if !app.version.isEmpty { LabeledContent("Version", value: app.version) }
+                        if !app.category.isEmpty { LabeledContent("Type", value: app.category) }
+                    }
                     LabeledContent("Last played", value: lastPlayedText)
                     Text(app.playTimeText)
                 }
@@ -361,9 +365,11 @@ struct GameInfoView: View {
                         Text(compatibility.detail).font(.footnote).foregroundStyle(.secondary)
                     }
                 }
-                Section {
-                    Text("Descriptions, ratings and screenshots come from the PlayStation Store, which isn't available offline. The pictures above are the ones that came with the game.")
-                        .font(.caption).foregroundStyle(.secondary)
+                if !app.is3DS {
+                    Section {
+                        Text("Descriptions, ratings and screenshots come from the PlayStation Store, which isn't available offline. The pictures above are the ones that came with the game.")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
                 }
             }
             .navigationTitle("Information")

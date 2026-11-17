@@ -10,7 +10,7 @@ app="$work/Preview.app"
 mkdir -p "$app" "$out"
 
 python3 "$repo/.ci/ui-preview/gen_stubs.py" "$repo/vita3k/ios/bridge/vita3k_bridge.h" "$repo/vita3k/ios/controls/virtual_pad.h" \
-    "$repo/vita3k/ios/ramhelper/ram_helpers.h" "$repo/vita3k/ios/ramhelper/builtin_jit.h" > "$work/stubs.c"
+    "$repo/vita3k/ios/ramhelper/ram_helpers.h" "$repo/vita3k/ios/ramhelper/builtin_jit.h" "$repo/vita3k/ios/n3ds/n3ds.h" > "$work/stubs.c"
 target=arm64-apple-ios17.4-simulator
 sdk="$(xcrun --sdk iphonesimulator --show-sdk-path)"
 xcrun --sdk iphonesimulator clang -target "$target" -isysroot "$sdk" -c "$work/stubs.c" -o "$work/stubs.o"

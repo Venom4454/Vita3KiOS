@@ -11,7 +11,7 @@ import SwiftUI
 /// computer (Finder / iTunes file sharing).
 struct HinokiFilePicker: View {
     /// What the picked files are for: shapes the hint and which files are marked as usable
-    enum Purpose { case install, plugin }
+    enum Purpose { case install, plugin, keys }
 
     var purpose: Purpose = .install
     let onPick: ([URL]) -> Void
@@ -68,14 +68,14 @@ struct HinokiFilePicker: View {
                     }
                 }
             }
-            .navigationTitle(purpose == .plugin ? "Pick plugins" : "Pick files")
+            .navigationTitle(purpose == .plugin ? "Pick plugins" : purpose == .keys ? "Pick keys" : "Pick files")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button(selection.isEmpty ? (purpose == .plugin ? "Add" : "Install") : "\(purpose == .plugin ? "Add" : "Install") (\(selection.count))") {
+                    Button(selection.isEmpty ? (purpose == .install ? "Install" : "Add") : "\(purpose == .install ? "Install" : "Add") (\(selection.count))") {
                         let picked = Array(selection)
                         dismiss()
                         // after the sheet is gone, so the install overlay and alerts can show
@@ -95,9 +95,11 @@ struct HinokiFilePicker: View {
     private var hint: String {
         switch purpose {
         case .install:
-            return "Put games (.vpk, .zip, .pkg), firmware (.PUP), licenses (work.bin, .rif, .zrif), plugins or game folders in Hinoki's folder (Files app › On My iPhone › Hinoki, the Import folder is a good spot), then pick them here. Tap a folder to open it; tick it to install everything in it."
+            return "Put games (.vpk, .zip, .pkg, 3DS .3ds/.cci/.cia/.3dsx), firmware (.PUP), licenses (work.bin, .rif, .zrif), plugins or game folders in Hinoki's folder (Files app › On My iPhone › Hinoki, the Import folder is a good spot), then pick them here. Tap a folder to open it; tick it to install everything in it."
         case .plugin:
             return "Put .suprx / .skprx plugins (and libshacccg.suprx for ports) in Hinoki's folder (Files app › On My iPhone › Hinoki › Import), then pick them here."
+        case .keys:
+            return "Put aes_keys.txt and seeddb.bin from your 3DS in Hinoki's folder (Files app › On My iPhone › Hinoki › Import), then pick them here."
         }
     }
 
@@ -155,6 +157,7 @@ struct HinokiFilePicker: View {
         case 2, 3: return "shippingbox.fill"
         case 5: return "key.fill"
         case 6: return "puzzlepiece.extension.fill"
+        case 7: return "gamecontroller"
         default: return "doc"
         }
     }
@@ -177,7 +180,7 @@ struct HinokiFilePicker: View {
         let lower = name.lowercased()
         if lower.count <= 5, lower.last == "0", lower.dropLast().allSatisfy({ $0.isLetter }) { return true } // ux0, ur0, vs0...
         let hidden: Set<String> = ["cache", "shaders", "shaderlog", "textures", "texture", "patch", "lang", "data", "config.yml",
-                                   "vita3k.log", "vita3k-previous.log", "save backups", "crash reports", "fonts", "music"]
+                                   "vita3k.log", "vita3k-previous.log", "save backups", "crash reports", "fonts", "music", "3ds"]
         return hidden.contains(lower) || lower.hasSuffix(".log") || lower.hasSuffix(".yml")
     }
 
@@ -197,9 +200,12 @@ struct HinokiFilePicker: View {
             switch purpose {
             case .install: usable = kind != 0
             case .plugin: usable = kind == 6
+            case .keys:
+                let name = url.lastPathComponent.lowercased()
+                usable = name == "seeddb.bin" || name.hasSuffix(".txt")
             }
             list.append(Entry(url: url, isFolder: isFolder, isGameFolder: isGame, size: Int64(values?.fileSize ?? 0),
-                              usable: purpose == .plugin ? usable : (usable || isFolder)))
+                              usable: purpose == .install ? (usable || isFolder) : usable))
         }
         // Import first, then folders, then files, each by name
         entries = list.sorted { a, b in

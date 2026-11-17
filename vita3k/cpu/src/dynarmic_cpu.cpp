@@ -367,6 +367,38 @@ std::size_t ios_jit_code_cache_pool_available(std::size_t cache_size) {
     return oaknut::detail::matching_region_count(cache_size);
 }
 
+bool ios_jit_lend_region(std::size_t size, void **rx, void **rw) {
+    if (!oaknut::detail::requires_universal_jit())
+        return false;
+    oaknut::detail::PreparedJitRegion region;
+    if (!oaknut::detail::take_prepared_jit_region(size, region)) {
+        if (!oaknut::detail::is_process_traced())
+            return false;
+        try {
+            region = oaknut::detail::prepare_new_universal_jit_region(size);
+        } catch (...) {
+            return false;
+        }
+    }
+    *rx = region.rx;
+    *rw = region.rw;
+    return true;
+}
+
+void ios_jit_take_back_region(void *rx, void *rw, std::size_t size) {
+    oaknut::detail::return_prepared_jit_region({ static_cast<std::uint32_t *>(rx), static_cast<std::uint32_t *>(rw), size });
+}
+
+std::size_t ios_jit_lend_size() {
+    if (!oaknut::detail::requires_universal_jit())
+        return 32 * 1024 * 1024; // older iOS: any size maps
+    for (const std::size_t size : { IOS_BIG_CODE_CACHE_SIZE, IOS_SMALL_CODE_CACHE_SIZE, IOS_TINY_CODE_CACHE_SIZE }) {
+        if (oaknut::detail::matching_region_count(size) > 0)
+            return size;
+    }
+    return IOS_SMALL_CODE_CACHE_SIZE;
+}
+
 // Whether a code cache of this size can be made now: from the prepared pool on iOS 26+, always
 // before (oaknut maps it itself)
 static bool ios_code_cache_available(std::size_t cache_size) {

@@ -22,6 +22,7 @@
 #include "../ios_platform.h"
 #include "../ios_session.h"
 #include "../jit/ios_jit.h"
+#include "../n3ds/n3ds.h"
 #include "archive.h"
 
 #include <app/functions.h>
@@ -135,6 +136,8 @@ int kind_of(const fs::path &path) {
         return 5;
     if (ext == ".suprx" || ext == ".skprx")
         return 6;
+    if (n3ds::is_3ds_file(path))
+        return 7;
     return 0;
 }
 
@@ -495,6 +498,16 @@ bool install_file(EmuEnvState &emuenv, const fs::path &file, const std::string &
             outcome.errors.push_back(fmt::format("{}: {}", file.filename().string(), result));
         return ok;
     }
+    case 7: {
+        // 3DS: games, updates, DLC and homebrew go to the 3DS core
+        std::string result;
+        const bool ok = n3ds::import_file(file, [&](float percent) { report(percent); }, result);
+        if (ok)
+            outcome.notes.push_back(result);
+        else
+            outcome.errors.push_back(fmt::format("{}: {}", file.filename().string(), result));
+        return ok;
+    }
     case 6: {
         std::string result;
         const bool ok = add_plugin(emuenv.vita_fs_path, file, {}, result);
@@ -511,7 +524,7 @@ bool install_file(EmuEnvState &emuenv, const fs::path &file, const std::string &
         else if (ext == ".bin")
             outcome.errors.push_back(fmt::format("{}: not a license file (a work.bin is exactly 512 bytes).", file.filename().string()));
         else
-            outcome.errors.push_back(fmt::format("{}: Hinoki doesn't know this kind of file. Import .vpk, .zip, .pkg, .pup, work.bin/.rif/.zrif licenses, .suprx/.skprx plugins, or a game folder.", file.filename().string()));
+            outcome.errors.push_back(fmt::format("{}: Hinoki doesn't know this kind of file. Import .vpk, .zip, .pkg, .pup, work.bin/.rif/.zrif licenses, .suprx/.skprx plugins, 3DS games (.3ds .cci .cia .3dsx), or a game folder.", file.filename().string()));
         return false;
     }
     }
@@ -676,6 +689,12 @@ char *v3k_apps_json(void) {
         json += fmt::format(R"({{"titleId":{},"title":{},"version":{},"category":{},"iconPath":{},"path":{},"lastPlayed":{},"playTime":{},"customConfig":{},"compat":{},"compatIssue":{}}})",
             json_quote(app.title_id), json_quote(app.title), json_quote(app.app_ver), json_quote(app.category), json_quote(app.icon_path), json_quote(app.path), last_played,
             play_time, custom ? "true" : "false", compat_state, compat_issue);
+    }
+    // 3DS games, in the same list (category "3ds")
+    if (char *n3ds_apps = v3k_n3ds_apps_json()) {
+        if (*n3ds_apps)
+            json += (first ? "" : ",") + std::string(n3ds_apps);
+        std::free(n3ds_apps);
     }
     json += "]";
     return dup_string(json);

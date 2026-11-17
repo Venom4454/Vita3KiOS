@@ -205,7 +205,11 @@ struct LibraryView: View {
                 SettingsView().environmentObject(model)
             }
             .sheet(item: $gameDetails) { app in
-                GameSettingsView(app: app).environmentObject(model)
+                if app.is3DS {
+                    N3DSGameDetailsView(app: app).environmentObject(model)
+                } else {
+                    GameSettingsView(app: app).environmentObject(model)
+                }
             }
             .sheet(item: $model.crashReport) { report in
                 CrashReportView(report: report)
@@ -510,7 +514,7 @@ struct EmptyLibrary: View {
                 .foregroundStyle(Theme.accentGradient)
                 .padding(.top, 40)
             Text("Your library is empty").font(.title2.bold())
-            Text("Add games as .vpk, .zip, .pkg (with its zRIF or work.bin) or a dumped game folder.\nYou can also drop files into the Import folder of Hinoki in the Files app.")
+            Text("Add PS Vita games as .vpk, .zip, .pkg (with its zRIF or work.bin) or a dumped game folder, and 3DS games as .3ds, .cci, .cia or .3dsx.\nYou can also drop files into the Import folder of Hinoki in the Files app.")
                 .font(.callout)
                 .multilineTextAlignment(.center)
                 .foregroundStyle(.white.opacity(0.65))
@@ -635,7 +639,7 @@ private struct ImportMenu: View {
     var body: some View {
         Menu {
             Button(action: importFiles) {
-                Label("Files (VPK, ZIP, PKG, PUP, plugins)", systemImage: "doc.badge.plus")
+                Label("Files (VPK, ZIP, PKG, PUP, 3DS, plugins)", systemImage: "doc.badge.plus")
             }
             Button(action: importFolder) {
                 Label("Game folder", systemImage: "folder.badge.plus")

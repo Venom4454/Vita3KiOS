@@ -10,7 +10,8 @@ import sys
 
 proto = re.compile(r'^\s*([A-Za-z_][\w\s\*]*?[\s\*])(v3k_\w+)\s*\(([^;]*)\)\s*;')
 out = ['#include <stdbool.h>', '#include <stdint.h>', '#include <stdlib.h>', '#include <string.h>', '#include <stdio.h>',
-       'typedef void (*v3k_progress_fn)(void *context, float percent);', '']
+       'typedef void (*v3k_progress_fn)(void *context, float percent);',
+       'typedef void (*v3k_n3ds_event_fn)(void *context, int kind, int a, int b, const char *text);', '']
 seen = set()
 for header in sys.argv[1:]:
     # prototypes split over several lines (after a comma) are joined first

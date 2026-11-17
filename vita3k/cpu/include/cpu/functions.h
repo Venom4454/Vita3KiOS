@@ -115,6 +115,12 @@ std::size_t ios_jit_code_cache_pool_available(std::size_t cache_size);
 // Gives the physical memory of the caches waiting unused in the pool back to iOS (they keep their
 // place and come back zeroed when used). Returns the bytes released (0 if trimming is off).
 std::size_t trim_ios_jit_code_cache_pool();
+// The 3DS core (a separate library) borrows code caches from the same pool: a read-execute view
+// and its writable alias. false: none to lend (older iOS maps its own memory)
+bool ios_jit_lend_region(std::size_t size, void **rx, void **rw);
+void ios_jit_take_back_region(void *rx, void *rw, std::size_t size);
+// The biggest code cache size the pool can lend right now
+std::size_t ios_jit_lend_size();
 #endif
 #if defined(VITA3K_PLATFORM_IOS)
 // "Fast CPU": lets the recompiler take floating-point shortcuts (NaN handling, reciprocal precision,

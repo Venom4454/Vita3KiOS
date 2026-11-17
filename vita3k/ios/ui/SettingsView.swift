@@ -34,6 +34,11 @@ struct SettingsView: View {
                     } label: {
                         Label("Plugins", systemImage: "puzzlepiece.extension")
                     }
+                    NavigationLink {
+                        N3DSSettingsView()
+                    } label: {
+                        Label("Nintendo 3DS", systemImage: "rectangle.split.1x2")
+                    }
                 } footer: {
                     Text("Cheats and mods are set per game: long-press a game › Game settings, patches & saves. Plugins are .suprx/.skprx files from the PS Vita scene, for DLC loaders, ports and homebrew.")
                 }
@@ -850,6 +855,7 @@ struct CreditsSection: View {
     var body: some View {
         Section {
             CreditRow(name: "Vita3K", detail: "The PS Vita emulator this app is built on, by the Vita3K team and contributors.", url: "https://github.com/Vita3K/Vita3K")
+            CreditRow(name: "Azahar", detail: "The Nintendo 3DS emulator behind Hinoki's 3DS side, by the Azahar and Citra teams and contributors.", url: "https://github.com/azahar-emu/azahar")
             CreditRow(name: "Tsubomi by 125hz", detail: "iOS 26 JIT (dynarmic/oaknut patch and region pool), guest memory pre-reservation, audio session and display fixes.", url: "https://github.com/125hz/Tsubomi")
             CreditRow(name: "MrBouza", detail: "Fixed FSR on iOS, added the on-screen keyboard for game text input, and fixed the 16 MB JIT cache limit.", url: "https://github.com/MrBouza")
             CreditRow(name: "Vita3K-Plus by nckstwrt", detail: "Many game compatibility fixes (graphics, audio, saves, timing) ported from this Vita3K fork.", url: "https://github.com/nckstwrt/Vita3K-Plus")

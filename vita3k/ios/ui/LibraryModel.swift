@@ -282,6 +282,10 @@ final class LibraryModel: ObservableObject {
     }
 
     func launch(_ app: GameApp) {
+        if app.is3DS {
+            N3DSLauncher.launch(app, model: self)
+            return
+        }
         // Fast CPU: the game fixes list can turn it off (or on) for a game
         let fastCPUFix = v3k_game_fix_flag(app.titleId, "fast-cpu")
         v3k_set_fast_cpu(fastCPUFix >= 0 ? fastCPUFix == 1 : (UserDefaults.standard.object(forKey: "v3k.fastCPU") as? Bool ?? false))
@@ -367,6 +371,11 @@ final class LibraryModel: ObservableObject {
     }
 
     func delete(_ app: GameApp) {
+        if app.is3DS {
+            _ = v3k_n3ds_remove(app.titleId)
+            reload()
+            return
+        }
         if v3k_delete_app(app.titleId) {
             reload()
         }
