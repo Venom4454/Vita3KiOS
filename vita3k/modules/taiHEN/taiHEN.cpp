@@ -25,6 +25,7 @@
 #include <nids/functions.h>
 #include <util/arm.h>
 #include <util/log.h>
+#include <util/string_utils.h>
 #include <util/tracy.h>
 
 TRACY_MODULE_NAME(taiHEN);
@@ -1397,6 +1398,12 @@ void load_taihen_plugins_for_title(EmuEnvState &emuenv, const std::string &title
         auto kernel_it = state->config.find("KERNEL");
         if (kernel_it != state->config.end()) {
             for (const auto &plugin_path : kernel_it->second) {
+                // kubridge is implemented here (modules/kubridge): its own kernel code would poke
+                // firmware internals that don't exist in the emulator
+                if (string_utils::tolower(plugin_path).ends_with("kubridge.skprx")) {
+                    LOG_INFO("taiHEN: {} skipped, kubridge is built in", plugin_path);
+                    continue;
+                }
                 LOG_INFO("taiHEN: loading kernel plugin: {}", plugin_path);
                 SceUID uid = load_module(emuenv, plugin_path);
                 if (uid < 0) {
@@ -1410,17 +1417,26 @@ void load_taihen_plugins_for_title(EmuEnvState &emuenv, const std::string &title
         apply_plugin_hle_overrides(emuenv, pre_plugin_nids);
     }
 
-    // Load title-specific plugins
-    auto title_it = state->config.find(titleid);
-    if (title_it != state->config.end()) {
-        for (const auto &plugin_path : title_it->second) {
-            LOG_INFO("taiHEN: loading plugin for {}: {}", titleid, plugin_path);
-            SceUID uid = load_module(emuenv, plugin_path);
-            if (uid < 0) {
-                LOG_ERROR("taiHEN: failed to load plugin: {} (error {})", plugin_path, uid);
+    // Plugins for every game (*ALL, as on a Vita), then this title's own (section names compared
+    // without case: config files written by hand often have lower-case title IDs)
+    const auto load_section = [&](const std::string &section) {
+        for (const auto &[name, plugins] : state->config) {
+            if (string_utils::toupper(name) != section)
+                continue;
+            for (const auto &plugin_path : plugins) {
+                if (string_utils::tolower(plugin_path).ends_with("kubridge.skprx"))
+                    continue;
+                LOG_INFO("taiHEN: loading plugin for {}: {}", titleid, plugin_path);
+                SceUID uid = load_module(emuenv, plugin_path);
+                if (uid < 0) {
+                    LOG_ERROR("taiHEN: failed to load plugin: {} (error {})", plugin_path, uid);
+                }
             }
         }
-    }
+    };
+    if (!titleid.starts_with("NPXS"))
+        load_section("ALL");
+    load_section(string_utils::toupper(titleid));
 }
 
 // ==================== Library Init ====================

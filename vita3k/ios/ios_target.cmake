@@ -12,6 +12,8 @@ set(VITA3K_IOS_SWIFT_SOURCES
 	ios/ui/SettingsView.swift
 	ios/ui/SetupCheckView.swift
 	ios/ui/VitaButtonMapView.swift
+	ios/ui/PluginsView.swift
+	ios/ui/HinokiFilePicker.swift
 	ios/ui/TouchControls.swift
 	ios/ui/MenuMusic.swift
 	ios/ui/GameSettingsView.swift

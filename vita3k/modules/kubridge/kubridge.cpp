@@ -34,6 +34,8 @@
 #include <util/log.h>
 #include <util/tracy.h>
 
+#include <cstring>
+
 TRACY_MODULE_NAME(kubridge);
 
 // kubridge protection flags
@@ -224,4 +226,92 @@ EXPORT(void, kuKernelReleaseExceptionHandler, uint32_t exceptionType) {
         const Address old = emuenv.kernel.exception_handlers[exceptionType].exchange(0);
         LOG_INFO("kuKernelReleaseExceptionHandler: type={} old=0x{:08X}", exceptionType, old);
     }
+}
+
+// The rest of kubridge, so homebrew and Android ports built on so_loader (they import kubridge to load
+// and patch the game's .so) run without the kubridge.skprx plugin installed. With the plugin installed,
+// taiHEN swaps its exports for these too.
+
+struct KuKernelAllocMemBlockOpt {
+    uint32_t size;
+    uint32_t field_4;
+    uint32_t attr;
+    uint32_t field_C; // with attr bit 0: the virtual address the block must start at
+};
+
+constexpr uint32_t KU_ALLOC_ATTR_HAS_VBASE = 0x1;
+
+// kuKernelAllocMemBlock: a memory block, at the address the caller asks for when it asks (so_loader
+// places a port's code and data at a fixed base). Guest memory is always readable, writable and
+// executable here, so the block type only matters for bookkeeping
+EXPORT(SceUID, kuKernelAllocMemBlock, const char *name, SceKernelMemBlockType type, SceSize size, Ptr<KuKernelAllocMemBlockOpt> pOpt) {
+    TRACY_FUNC(kuKernelAllocMemBlock, type, size, pOpt);
+    if (size == 0)
+        return RET_ERROR(SCE_KERNEL_ERROR_INVALID_ARGUMENT);
+
+    auto &mem = emuenv.mem;
+    const auto state = emuenv.kernel.obj_store.get<SysmemState>();
+    const auto guard = std::lock_guard<std::mutex>(state->mutex);
+
+    const char *block_name = name ? name : "kubridge_block";
+    const SceSize aligned = align(size, 4 * 1024);
+    Address base = 0;
+    if (pOpt && (pOpt.get(mem)->attr & KU_ALLOC_ATTR_HAS_VBASE) && pOpt.get(mem)->field_C) {
+        base = alloc_at(mem, pOpt.get(mem)->field_C, aligned, block_name);
+        if (!base)
+            LOG_WARN("kuKernelAllocMemBlock: {} could not be placed at {}", block_name, log_hex(pOpt.get(mem)->field_C));
+    } else {
+        base = alloc(mem, aligned, block_name);
+    }
+    if (!base)
+        return RET_ERROR(SCE_KERNEL_ERROR_NO_MEMORY);
+
+    const SceUID uid = add_block(*state, block_name, type, base, aligned);
+    LOG_INFO("kuKernelAllocMemBlock: {} at {} ({} bytes)", block_name, log_hex(base), aligned);
+    return uid;
+}
+
+// kuKernelFlushCaches: the caller wrote code; drop whatever the JIT compiled from that range
+EXPORT(void, kuKernelFlushCaches, Ptr<const void> ptr, SceSize len) {
+    TRACY_FUNC(kuKernelFlushCaches, ptr, len);
+    if (ptr && len)
+        emuenv.kernel.invalidate_jit_cache(ptr.address(), len);
+}
+
+// kuKernelCpuUnrestrictedMemcpy: a copy that ignores page protection (used to patch code)
+EXPORT(int, kuKernelCpuUnrestrictedMemcpy, Ptr<void> dst, Ptr<const void> src, SceSize len) {
+    TRACY_FUNC(kuKernelCpuUnrestrictedMemcpy, dst, src, len);
+    if (!dst || !src)
+        return RET_ERROR(SCE_KERNEL_ERROR_INVALID_ARGUMENT);
+    if (len == 0)
+        return 0;
+    if (!is_valid_addr_range(emuenv.mem, dst.address(), dst.address() + len)
+        || !is_valid_addr_range(emuenv.mem, src.address(), src.address() + len))
+        return RET_ERROR(SCE_KERNEL_ERROR_INVALID_ARGUMENT);
+    std::memmove(dst.get(emuenv.mem), src.get(emuenv.mem), len);
+    emuenv.kernel.invalidate_jit_cache(dst.address(), len);
+    return 0;
+}
+
+// CPU clock requests: the phone runs at its own speed; report the Vita's top clock
+EXPORT(int, kuPowerGetSysClockFrequency) {
+    return 444;
+}
+
+EXPORT(int, kuPowerSetSysClockFrequency, int freq) {
+    TRACY_FUNC(kuPowerSetSysClockFrequency, freq);
+    return 0;
+}
+
+// Older kubridge: one abort handler = the data abort exception handler
+EXPORT(int, kuKernelRegisterAbortHandler, Ptr<void> pHandler, Ptr<Ptr<void>> pOldHandler, Ptr<KuKernelExceptionHandlerOpt> pOpt) {
+    TRACY_FUNC(kuKernelRegisterAbortHandler, pHandler, pOldHandler, pOpt);
+    const Address old_handler = emuenv.kernel.exception_handlers[0].exchange(pHandler.address());
+    if (pOldHandler)
+        *pOldHandler.get(emuenv.mem) = Ptr<void>(old_handler);
+    return 0;
+}
+
+EXPORT(void, kuKernelReleaseAbortHandler) {
+    emuenv.kernel.exception_handlers[0].exchange(0);
 }

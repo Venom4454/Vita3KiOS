@@ -2500,6 +2500,13 @@ NID(kuKernelMemCommit, 0x9C0CD758)
 NID(kuKernelMemDecommit, 0x9BDF5881)
 NID(kuKernelRegisterExceptionHandler, 0xF9025D19)
 NID(kuKernelReleaseExceptionHandler, 0xDF9F3BED)
+NID(kuKernelAllocMemBlock, 0x2EF7C290)
+NID(kuKernelFlushCaches, 0x38B70744)
+NID(kuKernelCpuUnrestrictedMemcpy, 0x91D9CABC)
+NID(kuPowerGetSysClockFrequency, 0x13371337)
+NID(kuPowerSetSysClockFrequency, 0x13371338)
+NID(kuKernelRegisterAbortHandler, 0x799F5648)
+NID(kuKernelReleaseAbortHandler, 0xB188292D)
 // Module "SceLibc"
 // Library "SceLibc"
 NID(_Assert, 0xE4531F85)

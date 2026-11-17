@@ -17,6 +17,7 @@
 
 #include "ios_session.h"
 #include "archive.h"
+#include "bridge/vita3k_bridge.h"
 #include "crash_report.h"
 
 #include <compat/functions.h>
@@ -327,11 +328,20 @@ ImportResult import_pending_files(const fs::path &import_dir) {
         } else if (ext == ".vpk" || ext == ".zip") {
             LOG_INFO("Installing archive {}", name);
             const auto reinstall = [](const std::string &, const std::string &) { return true; };
-            ok = !install_archive(*emuenv, file, nullptr, reinstall).empty();
+            // a list comes back even when nothing installed: count only what did
+            const auto contents = install_archive(*emuenv, file, nullptr, reinstall);
+            ok = std::ranges::any_of(contents, [](const auto &content) { return content.state; });
+            for (const auto &content : contents) {
+                if (!content.state && !content.error.empty())
+                    LOG_ERROR("{}: {}", name, content.error);
+            }
         } else if (ext == ".pkg") {
             LOG_INFO("Installing package {}", name);
             std::string zrif = read_zrif_for(file);
             ok = install_pkg(file, *emuenv, zrif);
+        } else if (ext == ".suprx" || ext == ".skprx") {
+            LOG_INFO("Adding plugin {}", name);
+            ok = v3k_add_plugin(file.string().c_str(), nullptr, nullptr);
         } else {
             handled = false; // .zrif files and anything unknown stay where they are
         }

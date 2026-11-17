@@ -45,6 +45,7 @@
 #include <renderer/state.h>
 #include <util/log.h>
 #include <util/string_utils.h>
+#include <util/vector_utils.h>
 
 #include <fmt/format.h>
 #include <spdlog/spdlog.h>
@@ -132,6 +133,8 @@ int kind_of(const fs::path &path) {
         return 3;
     if (is_license_file(path))
         return 5;
+    if (ext == ".suprx" || ext == ".skprx")
+        return 6;
     return 0;
 }
 
@@ -303,6 +306,126 @@ int install_pkgs_in_zip(EmuEnvState &emuenv, const fs::path &zip_path, v3k_progr
     return installed;
 }
 
+// ---- taiHEN plugins (ux0:tai/config.txt, read at every game start by modules/taiHEN) ----
+struct PluginSection {
+    std::string name; // KERNEL, ALL, or a title ID
+    std::vector<std::string> paths; // Vita paths, ux0:tai/name.suprx
+};
+
+fs::path plugin_config_path(const fs::path &vita_fs) {
+    return vita_fs / "ux0/tai/config.txt";
+}
+
+// The plugin list, from ux0:tai/config.txt (or ur0:tai/config.txt, which the loader falls back to)
+std::vector<PluginSection> read_plugin_config(const fs::path &vita_fs) {
+    std::vector<PluginSection> sections;
+    for (const auto &file : { plugin_config_path(vita_fs), vita_fs / "ur0/tai/config.txt" }) {
+        std::ifstream in(file);
+        if (!in)
+            continue;
+        std::string line;
+        while (std::getline(in, line)) {
+            if (!line.empty() && line.back() == '\r')
+                line.pop_back();
+            const auto start = line.find_first_not_of(" \t");
+            if (start == std::string::npos || line[start] == '#')
+                continue;
+            line = line.substr(start);
+            while (!line.empty() && (line.back() == ' ' || line.back() == '\t'))
+                line.pop_back();
+            if (line[0] == '*') {
+                sections.push_back({ string_utils::toupper(line.substr(1)), {} });
+            } else if (!sections.empty()) {
+                vector_utils::push_if_not_exists(sections.back().paths, line);
+            }
+        }
+        break;
+    }
+    return sections;
+}
+
+bool write_plugin_config(const fs::path &vita_fs, const std::vector<PluginSection> &sections) {
+    const auto path = plugin_config_path(vita_fs);
+    std::error_code ec;
+    fs::create_directories(path.parent_path(), ec);
+    std::string text = "# taiHEN plugins, managed by Hinoki (Settings > Plugins). Sections: *KERNEL, *ALL (every game), *TITLEID\n";
+    for (const auto &section : sections) {
+        if (section.paths.empty())
+            continue;
+        text += "*" + section.name + "\n";
+        for (const auto &plugin : section.paths)
+            text += plugin + "\n";
+    }
+    const auto temp = fs::path(path).concat(".new");
+    {
+        std::ofstream out(temp, std::ios::binary | std::ios::trunc);
+        if (!out.write(text.data(), static_cast<std::streamsize>(text.size())))
+            return false;
+    }
+    fs::rename(temp, path, ec);
+    return !ec;
+}
+
+// ux0:tai/x.suprx -> <vita fs>/ux0/tai/x.suprx
+fs::path plugin_host_path(const fs::path &vita_fs, const std::string &vita_path) {
+    const auto colon = vita_path.find(':');
+    if (colon == std::string::npos)
+        return vita_fs / "ux0" / fs_utils::utf8_to_path(vita_path);
+    std::string rest = vita_path.substr(colon + 1);
+    while (!rest.empty() && rest.front() == '/')
+        rest.erase(rest.begin());
+    return vita_fs / fs_utils::utf8_to_path(string_utils::tolower(vita_path.substr(0, colon))) / fs_utils::utf8_to_path(rest);
+}
+
+std::string lower_filename(const std::string &path) {
+    const auto slash = path.find_last_of("/:");
+    return string_utils::tolower(slash == std::string::npos ? path : path.substr(slash + 1));
+}
+
+// Adds a plugin file: copied to ux0:tai and listed under a section (kernel plugins under *KERNEL,
+// the rest under *ALL unless a title is given). libshacccg.suprx is the Vita's shader compiler, not a
+// plugin: ports that draw with vitaGL load it from ur0:data
+bool add_plugin(const fs::path &vita_fs, const fs::path &file, std::string section, std::string &result) {
+    const std::string name = file.filename().string();
+    const std::string lower = string_utils::tolower(name);
+    std::error_code ec;
+    if (lower == "libshacccg.suprx") {
+        fs::create_directories(vita_fs / "ur0/data", ec);
+        fs::copy_file(file, vita_fs / "ur0/data/libshacccg.suprx", fs::copy_options::overwrite_existing, ec);
+        result = ec ? "The shader compiler could not be copied." : "Shader compiler (libshacccg.suprx) installed: ports that need it can draw now.";
+        return !ec;
+    }
+    if (lower == "kubridge.skprx") {
+        result = "kubridge is built into Hinoki: ports that need it run without the plugin. Nothing was added.";
+        return true;
+    }
+    if (section.empty())
+        section = lower.ends_with(".skprx") ? "KERNEL" : "ALL";
+    section = string_utils::toupper(section);
+
+    fs::create_directories(vita_fs / "ux0/tai", ec);
+    fs::copy_file(file, vita_fs / "ux0/tai" / file.filename(), fs::copy_options::overwrite_existing, ec);
+    if (ec) {
+        result = fmt::format("{} could not be copied ({}).", name, ec.message());
+        return false;
+    }
+    auto sections = read_plugin_config(vita_fs);
+    const std::string vita_path = "ux0:tai/" + name;
+    auto it = std::ranges::find_if(sections, [&](const PluginSection &s) { return s.name == section; });
+    if (it == sections.end()) {
+        sections.push_back({ section, {} });
+        it = std::prev(sections.end());
+    }
+    vector_utils::push_if_not_exists(it->paths, vita_path);
+    if (!write_plugin_config(vita_fs, sections)) {
+        result = "The plugin list (ux0:tai/config.txt) could not be saved.";
+        return false;
+    }
+    const std::string where = section == "ALL" ? "every game" : (section == "KERNEL" ? "the kernel (every game)" : section);
+    result = fmt::format("Plugin {} added for {}. Change it in Settings > Plugins.", name, where);
+    return true;
+}
+
 // Installs one file. Folders are handled by install_path.
 bool install_file(EmuEnvState &emuenv, const fs::path &file, const std::string &zrif_in, v3k_progress_fn progress, void *context, InstallOutcome &outcome) {
     const auto report = [&](float percent) {
@@ -372,6 +495,15 @@ bool install_file(EmuEnvState &emuenv, const fs::path &file, const std::string &
             outcome.errors.push_back(fmt::format("{}: {}", file.filename().string(), result));
         return ok;
     }
+    case 6: {
+        std::string result;
+        const bool ok = add_plugin(emuenv.vita_fs_path, file, {}, result);
+        if (ok)
+            outcome.notes.push_back(result);
+        else
+            outcome.errors.push_back(fmt::format("{}: {}", file.filename().string(), result));
+        return ok;
+    }
     default: {
         const auto ext = lower_extension(file);
         if (ext == ".7z" || ext == ".rar")
@@ -379,7 +511,7 @@ bool install_file(EmuEnvState &emuenv, const fs::path &file, const std::string &
         else if (ext == ".bin")
             outcome.errors.push_back(fmt::format("{}: not a license file (a work.bin is exactly 512 bytes).", file.filename().string()));
         else
-            outcome.errors.push_back(fmt::format("{}: Hinoki doesn't know this kind of file. Import .vpk, .zip, .pkg, .pup, work.bin/.rif/.zrif licenses, or a game folder.", file.filename().string()));
+            outcome.errors.push_back(fmt::format("{}: Hinoki doesn't know this kind of file. Import .vpk, .zip, .pkg, .pup, work.bin/.rif/.zrif licenses, .suprx/.skprx plugins, or a game folder.", file.filename().string()));
         return false;
     }
     }
@@ -696,6 +828,93 @@ bool v3k_install(const char *path, const char *zrif, v3k_progress_fn progress, v
         *message = dup_string(text);
     }
     return outcome.failed == 0 && outcome.installed > 0;
+}
+
+char *v3k_plugins_json(void) {
+    auto *emuenv = ios::get_emuenv();
+    if (!emuenv)
+        return dup_string(R"({"plugins":[],"shaderCompiler":false})");
+    std::lock_guard lock(install_mutex);
+    const auto &vita_fs = emuenv->vita_fs_path;
+    std::string items;
+    for (const auto &section : read_plugin_config(vita_fs)) {
+        for (const auto &plugin : section.paths) {
+            std::error_code ec;
+            const bool exists = fs::exists(plugin_host_path(vita_fs, plugin), ec);
+            const bool builtin = lower_filename(plugin) == "kubridge.skprx";
+            items += fmt::format(R"({}{{"path":"{}","file":"{}","section":"{}","exists":{},"builtIn":{}}})", items.empty() ? "" : ",",
+                json_escape(plugin), json_escape(plugin.substr(plugin.find_last_of("/:") + 1)), json_escape(section.name),
+                exists ? "true" : "false", builtin ? "true" : "false");
+        }
+    }
+    std::error_code ec;
+    const bool shacccg = fs::exists(vita_fs / "ur0/data/libshacccg.suprx", ec);
+    return dup_string(fmt::format(R"({{"plugins":[{}],"shaderCompiler":{}}})", items, shacccg ? "true" : "false"));
+}
+
+bool v3k_add_plugin(const char *path, const char *section, char **message) {
+    auto *emuenv = ios::get_emuenv();
+    std::string result = "The emulator is not initialised.";
+    bool ok = false;
+    if (emuenv && path) {
+        std::lock_guard lock(install_mutex);
+        ok = add_plugin(emuenv->vita_fs_path, fs::path(path), section ? section : "", result);
+    }
+    if (message)
+        *message = dup_string(result);
+    return ok;
+}
+
+bool v3k_move_plugin(const char *path, const char *from_section, const char *to_section) {
+    auto *emuenv = ios::get_emuenv();
+    if (!emuenv || !path || !from_section || !to_section)
+        return false;
+    std::lock_guard lock(install_mutex);
+    auto sections = read_plugin_config(emuenv->vita_fs_path);
+    const std::string from = string_utils::toupper(from_section), to = string_utils::toupper(to_section);
+    for (auto &section : sections) {
+        if (section.name == from)
+            std::erase(section.paths, std::string(path));
+    }
+    auto it = std::ranges::find_if(sections, [&](const PluginSection &s) { return s.name == to; });
+    if (it == sections.end()) {
+        sections.push_back({ to, {} });
+        it = std::prev(sections.end());
+    }
+    vector_utils::push_if_not_exists(it->paths, std::string(path));
+    return write_plugin_config(emuenv->vita_fs_path, sections);
+}
+
+bool v3k_remove_plugin(const char *path, const char *section_name, bool delete_file) {
+    auto *emuenv = ios::get_emuenv();
+    if (!emuenv || !path || !section_name)
+        return false;
+    std::lock_guard lock(install_mutex);
+    const auto &vita_fs = emuenv->vita_fs_path;
+    auto sections = read_plugin_config(vita_fs);
+    const std::string name = string_utils::toupper(section_name);
+    bool still_used = false;
+    for (auto &section : sections) {
+        if (section.name == name)
+            std::erase(section.paths, std::string(path));
+        else if (std::ranges::contains(section.paths, std::string(path)))
+            still_used = true;
+    }
+    if (!write_plugin_config(vita_fs, sections))
+        return false;
+    if (delete_file && !still_used) {
+        std::error_code ec;
+        fs::remove(plugin_host_path(vita_fs, path), ec);
+    }
+    return true;
+}
+
+bool v3k_remove_shader_compiler(void) {
+    auto *emuenv = ios::get_emuenv();
+    if (!emuenv)
+        return false;
+    std::error_code ec;
+    return fs::remove(emuenv->vita_fs_path / "ur0/data/libshacccg.suprx", ec);
 }
 
 // The memory mapping methods offered on iOS (Settings › Graphics › Memory mapping). External host

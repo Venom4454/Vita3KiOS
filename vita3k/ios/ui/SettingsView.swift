@@ -29,8 +29,13 @@ struct SettingsView: View {
                     } label: {
                         Label("Patches", systemImage: "bandage")
                     }
+                    NavigationLink {
+                        PluginsView()
+                    } label: {
+                        Label("Plugins", systemImage: "puzzlepiece.extension")
+                    }
                 } footer: {
-                    Text("Cheats and mods are set per game: long-press a game › Game settings, patches & saves.")
+                    Text("Cheats and mods are set per game: long-press a game › Game settings, patches & saves. Plugins are .suprx/.skprx files from the PS Vita scene, for DLC loaders, ports and homebrew.")
                 }
                 MemorySection()
                 JITSection()
@@ -182,6 +187,7 @@ struct MusicSection: View {
 struct StorageSection: View {
     @EnvironmentObject var model: LibraryModel
     @State private var picking = false
+    @AppStorage("v3k.builtInPicker") private var builtInPicker = false
 
     private var locationName: String {
         guard model.storage.custom else { return "This device" }
@@ -221,10 +227,13 @@ struct StorageSection: View {
                     Text("Moving storage…").foregroundStyle(.secondary)
                 }
             }
+            Toggle(isOn: $builtInPicker) {
+                Label("Built-in file picker", systemImage: "folder.badge.gearshape")
+            }
         } header: {
             Text("Storage")
         } footer: {
-            Text("Games, saves and firmware live here. Pick a folder on this device or on an external drive (USB-C SSD, thumb drive, microSD reader). Firmware is copied over automatically. You can also copy an existing Vita3K folder (with ux0 inside) onto the drive and pick it. Keep the drive connected while playing.")
+            Text("Games, saves and firmware live here. Pick a folder on this device or on an external drive (USB-C SSD, thumb drive, microSD reader). Firmware is copied over automatically. You can also copy an existing Vita3K folder (with ux0 inside) onto the drive and pick it. Keep the drive connected while playing.\n\nBuilt-in file picker: imports pick from Hinoki's folder (Files app › On My iPhone › Hinoki) instead of the system picker. Turn it on if the system picker doesn't open or won't import, which happens with some developer-certificate signing.")
         }
         .fileImporter(isPresented: $picking, allowedContentTypes: [.folder]) { result in
             if case .success(let url) = result {

@@ -87,6 +87,8 @@ struct LibraryView: View {
     @State private var zrifInput = ""
     @State private var showingZrifEntry = false
     @State private var zrifEntry = ""
+    @State private var showingBuiltInPicker = false
+    @AppStorage("v3k.builtInPicker") private var preferBuiltInPicker = false
 
     private var filteredApps: [GameApp] {
         let apps = search.isEmpty ? model.apps : model.apps.filter {
@@ -189,7 +191,7 @@ struct LibraryView: View {
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     ImportMenu(importFiles: { openImporter([.item]) }, importFolder: { openImporter([.folder]) },
-                               enterZrif: { showingZrifEntry = true })
+                               enterZrif: { showingZrifEntry = true }, builtInPicker: { showingBuiltInPicker = true })
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button { showingSettings = true } label: {
@@ -197,11 +199,8 @@ struct LibraryView: View {
                     }
                 }
             }
-            .fileImporter(isPresented: $showingImporter, allowedContentTypes: importerTypes, allowsMultipleSelection: true) { result in
-                if case .success(let urls) = result {
-                    model.enqueue(urls)
-                }
-            }
+            .modifier(ImportPickers(model: model, showingImporter: $showingImporter, importerTypes: importerTypes,
+                                    showingBuiltInPicker: $showingBuiltInPicker))
             .sheet(isPresented: $showingSettings) {
                 SettingsView().environmentObject(model)
             }
@@ -245,6 +244,10 @@ struct LibraryView: View {
     }
 
     private func openImporter(_ types: [UTType]) {
+        if preferBuiltInPicker {
+            showingBuiltInPicker = true
+            return
+        }
         importerTypes = types
         showingImporter = true
     }
@@ -627,14 +630,18 @@ private struct ImportMenu: View {
     let importFiles: () -> Void
     let importFolder: () -> Void
     let enterZrif: () -> Void
+    let builtInPicker: () -> Void
 
     var body: some View {
         Menu {
             Button(action: importFiles) {
-                Label("Files (VPK, ZIP, PKG, PUP)", systemImage: "doc.badge.plus")
+                Label("Files (VPK, ZIP, PKG, PUP, plugins)", systemImage: "doc.badge.plus")
             }
             Button(action: importFolder) {
                 Label("Game folder", systemImage: "folder.badge.plus")
+            }
+            Button(action: builtInPicker) {
+                Label("From Hinoki's folder", systemImage: "folder")
             }
             Section("License") {
                 Button(action: importFiles) {
@@ -647,6 +654,30 @@ private struct ImportMenu: View {
         } label: {
             Image(systemName: "plus.circle.fill").font(.title2).foregroundStyle(Theme.accentGradient)
         }
+    }
+}
+
+/// The system file picker and Hinoki's own (kept out of LibraryView.body for the Swift type checker)
+private struct ImportPickers: ViewModifier {
+    @ObservedObject var model: LibraryModel
+    @Binding var showingImporter: Bool
+    let importerTypes: [UTType]
+    @Binding var showingBuiltInPicker: Bool
+
+    func body(content: Content) -> some View {
+        content
+            .fileImporter(isPresented: $showingImporter, allowedContentTypes: importerTypes, allowsMultipleSelection: true) { result in
+                switch result {
+                case .success(let urls):
+                    model.enqueue(urls)
+                case .failure:
+                    // The system picker fails for some developer-certificate signed installs: Hinoki's own instead
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { showingBuiltInPicker = true }
+                }
+            }
+            .sheet(isPresented: $showingBuiltInPicker) {
+                HinokiFilePicker { model.enqueue($0) }
+            }
     }
 }
 

@@ -75,7 +75,8 @@ bool v3k_use_internal_storage(char **message);
 typedef void (*v3k_progress_fn)(void *context, float percent);
 
 // What kind of thing a path is: 0 unknown, 1 firmware (.PUP), 2 archive (.vpk/.zip), 3 package (.pkg), 4 folder,
-// 5 license (work.bin / .rif of 512 bytes, or a .zrif text file). v3k_install installs any of them.
+// 5 license (work.bin / .rif of 512 bytes, or a .zrif text file), 6 plugin (.suprx/.skprx). v3k_install
+// installs any of them.
 int v3k_install_kind(const char *path);
 
 // Adds a game's license from its zRIF key (ux0/license/<title ID>/<content ID>.rif), so its .pkg or a
@@ -86,6 +87,18 @@ bool v3k_install_zrif(const char *zrif, char **message);
 // or a folder (a game folder, or a folder holding any of the above). Blocking: call it off the main thread.
 // On return *message (if not NULL) holds a human-readable summary to free with v3k_free_string.
 bool v3k_install(const char *path, const char *zrif, v3k_progress_fn progress, void *context, char **message);
+
+// ---- Plugins (taiHEN, ux0:tai/config.txt) ----
+// {"plugins":[{"path","file","section","exists","builtIn"}],"shaderCompiler":bool}. Sections: KERNEL, ALL
+// (every game) or a title ID. Free with v3k_free_string.
+char *v3k_plugins_json(void);
+// Copies a .suprx/.skprx into ux0:tai and lists it (section NULL: kernel plugins under KERNEL, others
+// under ALL). libshacccg.suprx goes to ur0:data instead. *message gets a summary to free.
+bool v3k_add_plugin(const char *path, const char *section, char **message);
+bool v3k_move_plugin(const char *path, const char *from_section, const char *to_section);
+// Takes a plugin out of a section; delete_file also removes the file when no other section uses it
+bool v3k_remove_plugin(const char *path, const char *section, bool delete_file);
+bool v3k_remove_shader_compiler(void);
 
 // What a .pkg is, without installing it: JSON {"kind": "game"|"update"|"dlc"|"theme"|"unknown",
 // "titleId","title","contentId","zrif" (a license already on the device, or ""), "gameInstalled"}
