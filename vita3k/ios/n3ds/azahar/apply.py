@@ -247,4 +247,36 @@ edit(SINK, "constexpr std::array sink_details = {\n", """constexpr std::array si
 #endif
 """)
 
+# ---- 2f. common/apple_utils.mm is macOS only (Cocoa, NSScreen): iOS takes the refresh rate from UIScreen ----
+edit("src/common/apple_utils.mm", """#import <Cocoa/Cocoa.h>
+#import <CoreGraphics/CoreGraphics.h>
+#import <Foundation/Foundation.h>
+
+namespace AppleUtils {
+
+float GetRefreshRate() {""", """#include <TargetConditionals.h>
+#if TARGET_OS_IPHONE
+#import <UIKit/UIKit.h> // HINOKI
+#else
+#import <Cocoa/Cocoa.h>
+#import <CoreGraphics/CoreGraphics.h>
+#endif
+#import <Foundation/Foundation.h>
+
+namespace AppleUtils {
+
+#if TARGET_OS_IPHONE
+float GetRefreshRate() {
+    const NSInteger fps = [UIScreen mainScreen].maximumFramesPerSecond;
+    return fps > 0 ? static_cast<float>(fps) : 60.f;
+}
+#else
+float GetRefreshRate() {""")
+edit("src/common/apple_utils.mm", """    return 60; // Something went wrong, so just return a generic value
+}
+""", """    return 60; // Something went wrong, so just return a generic value
+}
+#endif // HINOKI
+""")
+
 print("Azahar prepared for Hinoki")

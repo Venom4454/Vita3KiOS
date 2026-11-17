@@ -21,7 +21,7 @@ target_link_libraries(azahar_hinoki PRIVATE
 
 if (APPLE)
     target_link_libraries(azahar_hinoki PRIVATE
-        "-framework Foundation" "-framework AVFoundation" "-framework AudioToolbox"
+        "-framework Foundation" "-framework UIKit" "-framework AVFoundation" "-framework AudioToolbox"
         "-framework CoreAudio" "-framework IOSurface" "-framework Metal" "-framework QuartzCore"
         "-Wl,-exported_symbols_list,${CMAKE_CURRENT_SOURCE_DIR}/exports.txt"
         "-Wl,-dead_strip"
