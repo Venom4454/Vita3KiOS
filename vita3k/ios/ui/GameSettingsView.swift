@@ -68,8 +68,14 @@ struct ModInfo: Codable {
 
 /// What the shared zip picker is choosing a file for
 private enum ZipImport: Identifiable {
-    case save, mod
-    var id: Int { self == .save ? 0 : 1 }
+    case save, mod, content
+    var id: Int {
+        switch self {
+        case .save: 0
+        case .mod: 1
+        case .content: 2
+        }
+    }
 }
 
 /// Everything about one game: its own settings, patches, shader cache and save data
@@ -125,16 +131,23 @@ struct GameSettingsView: View {
                 ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
             }
             .onAppear(perform: load)
-            .fileImporter(isPresented: Binding(get: { zipImport != nil }, set: { if !$0 { zipImport = nil } }), allowedContentTypes: zipImport == .save ? [.zip, .folder] : [.zip]) { result in
+            .fileImporter(isPresented: Binding(get: { zipImport != nil }, set: { if !$0 { zipImport = nil } }), allowedContentTypes: zipImport == .save ? [.zip, .folder] : (zipImport == .content ? [.item, .folder] : [.zip])) { result in
                 let kind = zipImport
                 zipImport = nil
                 guard case let .success(url) = result, let kind else { return }
+                if kind == .content {
+                    // updates and DLC go through the library's installer (.pkg with the game's license, .vpk, .zip, folders)
+                    model.enqueue([url])
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 3) { load() }
+                    return
+                }
                 let access = url.startAccessingSecurityScopedResource()
                 defer { if access { url.stopAccessingSecurityScopedResource() } }
                 var text: UnsafeMutablePointer<CChar>?
                 switch kind {
                 case .save: _ = v3k_import_save_data(app.titleId, url.path, &text)
                 case .mod: _ = v3k_import_mod(app.titleId, url.path, &text)
+                case .content: break
                 }
                 message = takeString(text)
                 load()
@@ -373,6 +386,11 @@ struct GameSettingsView: View {
         Section {
             LabeledContent("Update", value: content.update.isEmpty ? "None" : "v\(content.update) · \(size(content.updateBytes))")
             LabeledContent("DLC", value: content.dlc == 0 ? "None" : "\(content.dlc) · \(size(content.dlcBytes))")
+            Button {
+                zipImport = .content
+            } label: {
+                Label("Install update or DLC", systemImage: "arrow.down.app")
+            }
             if !content.update.isEmpty {
                 Button("Delete update", role: .destructive) {
                     _ = v3k_delete_game_content(app.titleId, true)
@@ -388,7 +406,7 @@ struct GameSettingsView: View {
         } header: {
             Text("Updates & DLC")
         } footer: {
-            Text("Install updates and DLC like games: + › Files, as .pkg, .vpk, .zip or a dumped folder. Updates don't need a zRIF: they use the game's license.")
+            Text("Install update or DLC takes a .pkg, .vpk, .zip or a dumped folder (also + › Files in the library). Updates don't need a zRIF: they use the game's license.")
         }
     }
 

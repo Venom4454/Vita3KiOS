@@ -47,28 +47,49 @@ enum N3DSSettings {
     /// Every setting sent to the core (before a boot)
     static func sendAll() {
         for key in defaults.keys where key != "layout_option" { v3k_n3ds_set_setting(key, value(key)) }
-        v3k_n3ds_set_setting("layout_option", landscapeLayout == "hinoki" ? "6" : landscapeLayout)
+        v3k_n3ds_set_setting("layout_option", coreLayout(landscapeLayout))
     }
 
-    /// Landscape screen layout: "hinoki" (the screens between two columns of controls), or one of
-    /// Azahar's: "0" stacked, "1" one screen, "2" large top screen, "3" side by side, "5" hybrid
+    /// Hinoki's own landscape layouts (Azahar's custom layout, worked out with the controls)
+    static let hinokiLayouts: Set<String> = ["hinoki", "sbs", "sbs-top"]
+
+    /// The core's layout_option for a landscape layout
+    static func coreLayout(_ layout: String) -> String { hinokiLayouts.contains(layout) ? "6" : layout }
+
+    /// Landscape screen layout: Hinoki's ("hinoki" big screen with the other small beside the controls,
+    /// "sbs" side by side with the controls below, "sbs-top" side by side as large as possible at the top),
+    /// or one of Azahar's: "0" stacked, "1" one screen, "2" large top screen, "3" side by side, "5" hybrid
     static var landscapeLayout: String {
         get {
-            if let chosen = UserDefaults.standard.string(forKey: "n3ds.screenLayout") { return chosen }
-            // Before Hinoki's layout: the Azahar layout picked in Settings (4 was a wrong value for hybrid)
-            if let old = UserDefaults.standard.string(forKey: "n3ds.layout_option") { return old == "4" ? "5" : old }
+            let defaults = UserDefaults.standard
+            if var chosen = defaults.string(forKey: "n3ds.screenLayout") {
+                // Azahar's side by side covered the screens with the controls: Hinoki's replaces it once
+                if chosen == "3" && !defaults.bool(forKey: "n3ds.sbsMigrated") {
+                    defaults.set(true, forKey: "n3ds.sbsMigrated")
+                    chosen = "sbs"
+                    defaults.set(chosen, forKey: "n3ds.screenLayout")
+                }
+                return chosen
+            }
+            // Before Hinoki's layouts: the Azahar layout picked in Settings (4 was a wrong value for hybrid)
+            if let old = defaults.string(forKey: "n3ds.layout_option") {
+                if old == "3" { return "sbs" }
+                return old == "4" ? "5" : old
+            }
             return "hinoki"
         }
         set {
             UserDefaults.standard.set(newValue, forKey: "n3ds.screenLayout")
-            UserDefaults.standard.set(newValue == "hinoki" ? "6" : newValue, forKey: "n3ds.layout_option")
-            v3k_n3ds_set_setting("layout_option", newValue == "hinoki" ? "6" : newValue)
+            UserDefaults.standard.set(true, forKey: "n3ds.sbsMigrated")
+            UserDefaults.standard.set(coreLayout(newValue), forKey: "n3ds.layout_option")
+            v3k_n3ds_set_setting("layout_option", coreLayout(newValue))
         }
     }
 
     static let landscapeLayouts: [(String, String)] = [
-        ("hinoki", "Screens between the controls"), ("2", "Large top screen"), ("3", "Side by side"),
-        ("0", "Stacked"), ("5", "Hybrid"), ("1", "One screen"),
+        ("hinoki", "Big screen + small screen"), ("sbs", "Side by side, controls below"),
+        ("sbs-top", "Side by side at the top (largest)"), ("2", "Large top screen (overlay)"),
+        ("3", "Side by side (overlay)"), ("0", "Stacked (overlay)"), ("5", "Hybrid (overlay)"), ("1", "One screen (overlay)"),
     ]
 
     private static func double(_ key: String, _ fallback: Double) -> Double {
@@ -308,28 +329,33 @@ final class N3DSDpad: UIView {
         }
     }
 
+    /// Up, down, left and right each own 60° around their axis; the diagonals only the 30° between
+    /// (equal 45° slices made a thumb slightly off the arm press a diagonal, which most games ignore:
+    /// the D-pad "worked sometimes"). The centre presses nothing.
     private func mask(at point: CGPoint) -> UInt32 {
         let dx = point.x - bounds.midX, dy = point.y - bounds.midY
-        let dead = min(bounds.width, bounds.height) * 0.1
+        let dead = min(bounds.width, bounds.height) * 0.08
         if hypot(dx, dy) < dead { return 0 }
-        let angle = atan2(dy, dx) // 0 = right, pi/2 = down
-        let sector = Int(((angle + .pi * 2 + .pi / 8).truncatingRemainder(dividingBy: .pi * 2)) / (.pi / 4))
-        switch sector {
-        case 0: return N3DSKey.right.rawValue
-        case 1: return N3DSKey.right.rawValue | N3DSKey.down.rawValue
-        case 2: return N3DSKey.down.rawValue
-        case 3: return N3DSKey.down.rawValue | N3DSKey.left.rawValue
-        case 4: return N3DSKey.left.rawValue
-        case 5: return N3DSKey.left.rawValue | N3DSKey.up.rawValue
-        case 6: return N3DSKey.up.rawValue
-        default: return N3DSKey.up.rawValue | N3DSKey.right.rawValue
+        var degrees = atan2(-dy, dx) * 180 / .pi // 0 = right, 90 = up
+        if degrees < 0 { degrees += 360 }
+        let up = N3DSKey.up.rawValue, down = N3DSKey.down.rawValue, left = N3DSKey.left.rawValue, right = N3DSKey.right.rawValue
+        switch degrees {
+        case ..<30, 330...: return right
+        case 30..<60: return right | up
+        case 60..<120: return up
+        case 120..<150: return up | left
+        case 150..<210: return left
+        case 210..<240: return left | down
+        case 240..<300: return down
+        default: return down | right
         }
     }
 
     private var current: UInt32 = 0
+    private let selection = UISelectionFeedbackGenerator()
 
     private func report(_ value: UInt32) {
-        if value != current, value != 0, N3DSSettings.haptics { UISelectionFeedbackGenerator().selectionChanged() }
+        if value != current, value != 0, N3DSSettings.haptics { selection.selectionChanged() }
         current = value
         highlight(value)
         changed?(value)
@@ -658,7 +684,8 @@ final class N3DSGameViewController: UIViewController {
     }
 
     private var isPortrait: Bool { view.bounds.height > view.bounds.width }
-    private var hinokiLayout: Bool { !isPortrait && N3DSSettings.landscapeLayout == "hinoki" }
+    /// One of Hinoki's own landscape layouts (screens placed around the controls)
+    private var hinokiLayout: Bool { !isPortrait && N3DSSettings.hinokiLayouts.contains(N3DSSettings.landscapeLayout) }
 
     // MARK: Layout
 
@@ -668,8 +695,33 @@ final class N3DSGameViewController: UIViewController {
     private struct ScreenPlan {
         var top: CGRect
         var bottom: CGRect
-        var mini: CGRect? // the small screen (tap to swap), phones only
-        var gutter: CGFloat
+        var mini: CGRect? = nil // the small screen (tap to swap), phones only
+        var gutter: CGFloat = 0
+        /// Side-by-side layouts: the controls go in this band along the bottom (nil: in two columns)
+        var strip: CGRect? = nil
+    }
+
+    /// Both screens side by side, from the top of the window: "sbs" leaves a band below for the
+    /// controls, "sbs-top" makes them as large as the width allows (the controls then reach up over the
+    /// bottom of the screens). Swapping puts the touch screen on the left.
+    private func sideBySidePlan(bounds: CGRect, safe: UIEdgeInsets, unit: CGFloat, largest: Bool) -> ScreenPlan {
+        let width = bounds.width, height = bounds.height
+        let wanted = min(max(height * 0.36, 118), 175) * CGFloat(min(max(N3DSSettings.controlsScale, 0.8), 1.25))
+        let band = largest ? 0 : wanted
+        let scale = min((height - band - max(safe.bottom, 6)) / 240, (width - 8) / 720)
+        let total = 720 * scale
+        let x = (width - total) / 2
+        let topRect: CGRect, bottomRect: CGRect
+        if bottomScreenBig {
+            bottomRect = CGRect(x: x, y: 0, width: 320 * scale, height: 240 * scale)
+            topRect = CGRect(x: bottomRect.maxX, y: 0, width: 400 * scale, height: 240 * scale)
+        } else {
+            topRect = CGRect(x: x, y: 0, width: 400 * scale, height: 240 * scale)
+            bottomRect = CGRect(x: topRect.maxX, y: 0, width: 320 * scale, height: 240 * scale)
+        }
+        let bottomEdge = height - max(safe.bottom, 8)
+        let stripTop = min(topRect.maxY + 6, bottomEdge - wanted)
+        return ScreenPlan(top: topRect, bottom: bottomRect, strip: CGRect(x: 0, y: stripTop, width: width, height: bottomEdge - stripTop))
     }
 
     private func screenPlan(bounds: CGRect, safe: UIEdgeInsets, unit: CGFloat) -> ScreenPlan {
@@ -717,7 +769,12 @@ final class N3DSGameViewController: UIViewController {
             gameView.frame = CGRect(x: 0, y: safe.top, width: bounds.width, height: height)
         } else {
             gameView.frame = bounds
-            if hinokiLayout { plan = screenPlan(bounds: bounds, safe: safe, unit: controlUnit) }
+            switch N3DSSettings.landscapeLayout {
+            case "hinoki": plan = screenPlan(bounds: bounds, safe: safe, unit: controlUnit)
+            case "sbs": plan = sideBySidePlan(bounds: bounds, safe: safe, unit: controlUnit, largest: false)
+            case "sbs-top": plan = sideBySidePlan(bounds: bounds, safe: safe, unit: controlUnit, largest: true)
+            default: break
+            }
         }
         overlay.frame = bounds
         layoutControls(plan: plan)
@@ -832,6 +889,9 @@ final class N3DSGameViewController: UIViewController {
             // the icon buttons between the shoulder buttons
             layoutIconRow(center: CGPoint(x: bounds.midX, y: top + shoulderH / 2))
             miniScreenButton.isHidden = true
+        } else if let strip = plan?.strip {
+            circleFrame = layoutBand(strip, u: u, newMode: newMode)
+            miniScreenButton.isHidden = true
         } else {
             let gutter = plan?.gutter ?? min(max(bounds.width * 0.19, 118), 210) * CGFloat(min(max(N3DSSettings.controlsScale, 0.8), 1.25))
             let leftX = max(safe.left * 0.45, 10), rightEdge = bounds.width - max(safe.right * 0.45, 10)
@@ -897,6 +957,56 @@ final class N3DSGameViewController: UIViewController {
             circle.frame = circleFrame
             circle.configure(floating: false, pad: circleFrame)
         }
+    }
+
+    /// Side-by-side layouts: every control in a band along the bottom, left to right
+    /// [L/ZL] [D-pad] [Circle Pad]   [SELECT HOME START, icons above]   [C-stick] [A B X Y] [ZR/R].
+    /// Returns where the Circle Pad goes.
+    private func layoutBand(_ band: CGRect, u: CGFloat, newMode: Bool) -> CGRect {
+        let safe = view.safeAreaInsets
+        let left = band.minX + max(safe.left * 0.45, 10), right = band.maxX - max(safe.right * 0.45, 10)
+        let height = band.height
+        let gap = 10 * u
+        // natural sizes, shrunk together if the row is wider than the screen
+        var shoulderW = 56 * u, dpadSize = min(height * 0.94, 120 * u), stick = min(height * 0.86, 108 * u)
+        var face = min(height / 3.1, 46 * u)
+        var cSize = newMode ? min(height * 0.42, 52 * u) : 0
+        let pillW = 58 * u, small = 26 * u
+        let middle = pillW * 3 + 12
+        let needed = shoulderW * 2 + dpadSize + stick + face * 3.1 + cSize + middle + gap * 8
+        let fit = min(1, (right - left) / needed)
+        if fit < 1 {
+            shoulderW *= fit
+            dpadSize *= fit
+            stick *= fit
+            face *= fit
+            cSize *= fit
+        }
+        let midY = band.midY
+
+        // left: shoulders stacked, D-pad, Circle Pad
+        let shoulderH = newMode ? (min(height, 112 * u) - 6) / 2 : min(height, 112 * u) * 0.5
+        let shoulderTop = midY - (newMode ? shoulderH + 3 : shoulderH / 2)
+        place(.l, CGRect(x: left, y: shoulderTop, width: shoulderW, height: shoulderH))
+        place(.zl, CGRect(x: left, y: shoulderTop + shoulderH + 6, width: shoulderW, height: shoulderH))
+        dpad.frame = CGRect(x: left + shoulderW + gap, y: midY - dpadSize / 2, width: dpadSize, height: dpadSize)
+        let circleFrame = CGRect(x: dpad.frame.maxX + gap, y: midY - stick / 2, width: stick, height: stick)
+
+        // right: shoulders stacked, face buttons, C-stick
+        place(.r, CGRect(x: right - shoulderW, y: shoulderTop, width: shoulderW, height: shoulderH))
+        place(.zr, CGRect(x: right - shoulderW, y: shoulderTop + shoulderH + 6, width: shoulderW, height: shoulderH))
+        let faceCenter = CGPoint(x: right - shoulderW - gap - face * 1.55, y: midY)
+        layoutFace(center: faceCenter, size: face)
+        cstick.frame = CGRect(x: faceCenter.x - face * 1.55 - gap - cSize, y: midY - cSize / 2, width: cSize, height: cSize)
+
+        // middle: SELECT HOME START at the bottom, the icon buttons above them
+        let centreX = (circleFrame.maxX + (newMode ? cstick.frame.minX : faceCenter.x - face * 1.55)) / 2
+        let rowY = band.maxY - small
+        place(.select, CGRect(x: centreX - pillW * 1.5 - 6, y: rowY, width: pillW, height: small))
+        place(.home, CGRect(x: centreX - pillW / 2, y: rowY, width: pillW, height: small))
+        place(.start, CGRect(x: centreX + pillW / 2 + 6, y: rowY, width: pillW, height: small))
+        layoutIconRow(center: CGPoint(x: centreX, y: max(band.minY + 15, rowY - 26)))
+        return circleFrame
     }
 
     private func layoutFace(center: CGPoint, size face: CGFloat) {

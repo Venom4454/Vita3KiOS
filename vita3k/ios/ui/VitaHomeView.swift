@@ -349,6 +349,9 @@ struct GameInfoView: View {
                         }
                     }
                 }
+                if app.is3DS && app.version != "Homebrew" {
+                    N3DSInfoSections(app: app)
+                }
                 Section("Details") {
                     if app.is3DS {
                         LabeledContent("System", value: app.version == "Homebrew" ? "Nintendo 3DS (homebrew)" : "Nintendo 3DS")

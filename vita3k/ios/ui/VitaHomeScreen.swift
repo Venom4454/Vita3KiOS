@@ -377,7 +377,7 @@ struct VitaHomeView: View {
         .background(Color.black.ignoresSafeArea())
         .statusBarHidden(true)
         .persistentSystemOverlays(.hidden)
-        .sheet(item: $infoApp) { app in GameInfoView(app: app) }
+        .sheet(item: $infoApp) { app in GameInfoView(app: app).environmentObject(LibraryHost.model) }
         .onAppear(perform: applyPreview)
         // Deleting games can leave fewer pages than the one being shown
         .onChange(of: pages.count) { _, count in
@@ -1397,6 +1397,9 @@ struct VitaLiveArea: View {
     @State private var template = LiveAreaTemplate()
     @State private var starting = false
     @State private var showingManual = false
+    @State private var showingArt = false
+    /// redraws the background after new 3DS art
+    @State private var artVersion = 0
 
     private var contents: String { (app.folder as NSString).appendingPathComponent("sce_sys/livearea/contents") }
 
@@ -1436,6 +1439,7 @@ struct VitaLiveArea: View {
                 }
             }
             .frame(width: space.len(840), height: space.len(500))
+            .id(artVersion)
             .clipShape(RoundedRectangle(cornerRadius: space.len(6), style: .continuous))
             .shadow(color: .black.opacity(0.4), radius: space.len(8))
             .position(x: space.x(60 + 420), y: space.y(44 + 250))
@@ -1479,6 +1483,10 @@ struct VitaLiveArea: View {
                     VitaLiveAreaIcon(symbol: "book.fill", title: "Manual", colors: [Color(red: 0.95, green: 0.3, blue: 0.6), Color(red: 0.75, green: 0.05, blue: 0.4)], space: space) { showingManual = true }
                 }
                 VitaLiveAreaIcon(symbol: "info.circle.fill", title: "Information", colors: [Color(red: 0.4, green: 0.8, blue: 1), Color(red: 0.05, green: 0.45, blue: 0.85)], space: space, action: info)
+                if app.is3DS && app.version != "Homebrew" {
+                    // 3DS only: pick the LiveArea's picture (box art, SteamGridDB)
+                    VitaLiveAreaIcon(symbol: "photo.fill", title: "Artwork", colors: [Color(red: 0.6, green: 0.9, blue: 0.5), Color(red: 0.15, green: 0.6, blue: 0.3)], space: space) { showingArt = true }
+                }
                 VitaLiveAreaIcon(symbol: "slider.horizontal.3", title: "Settings", colors: [Color(red: 1, green: 0.8, blue: 0.3), Color(red: 0.95, green: 0.55, blue: 0.1)], space: space, action: settings)
             }
             .position(x: space.x(gate.midX), y: space.y(44 + 46))
@@ -1547,6 +1555,12 @@ struct VitaLiveArea: View {
         .frame(width: space.size.width, height: space.size.height)
         .onAppear { template = LiveAreaTemplate.load(contents: contents) }
         .fullScreenCover(isPresented: $showingManual) { VitaManual(pages: manualPages) }
+        .sheet(isPresented: $showingArt) {
+            N3DSArtPicker(app: app) {
+                artVersion += 1
+                LibraryHost.model.reload()
+            }
+        }
     }
 
     private func pressStart() {

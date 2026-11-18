@@ -25,6 +25,7 @@
 // games/ (imported cartridge dumps), library/<id>/ (icon, art, info per game), keys/.
 
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 
 #ifdef __cplusplus
@@ -80,6 +81,22 @@ bool v3k_n3ds_load_state(int slot);
 char *v3k_n3ds_save_states_json(void);
 // Where a game keeps its save (it may not exist yet), NULL for homebrew. Free with v3k_free_string
 char *v3k_n3ds_save_folder(const char *id);
+// A game's installed update and DLC: {"update":bool,"dlc":bool,"updateBytes":n,"dlcBytes":n}. Free with
+// v3k_free_string. Updates and DLC install like games (+ › a .cia); remove_extra deletes one of them.
+char *v3k_n3ds_extras_json(const char *id);
+bool v3k_n3ds_remove_extra(const char *id, bool dlc);
+// The 3DS core's own folder (Documents/3DS/azahar): cheats/<title ID>.txt, load/mods/<title ID>/
+char *v3k_n3ds_user_folder(void);
+// What is known about a game: {"title","customTitle","publisher","regions","product","titleId","kind","file",
+// "bytes","art"}. Free with v3k_free_string
+char *v3k_n3ds_info_json(const char *id);
+// A name of the player's own for the game (empty: back to the game's own name)
+bool v3k_n3ds_rename(const char *id, const char *title);
+// A picture (PNG or JPEG data) as the game's LiveArea art: covers centred on a blurred backdrop, wide
+// pictures fill it
+bool v3k_n3ds_set_art(const char *id, const void *data, size_t size);
+// Games still without art: [{"id","title","product"}]. Free with v3k_free_string
+char *v3k_n3ds_games_without_art_json(void);
 // Adds play time when a session ends
 void v3k_n3ds_session_ended(const char *id, double seconds);
 

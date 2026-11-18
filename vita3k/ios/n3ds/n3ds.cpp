@@ -442,6 +442,17 @@ bool write_cover_art(const fs::path &folder, const std::string &image_data) {
             }
             art[(y * W + x) * 4 + 3] = 255;
         }
+    // a wide picture (a SteamGridDB hero, a screenshot) fills the whole area instead
+    if (static_cast<float>(w) / h >= 1.45f) {
+        for (int y = 0; y < H; y++)
+            for (int x = 0; x < W; x++)
+                for (int c = 0; c < 3; c++)
+                    art[(y * W + x) * 4 + c] = static_cast<uint8_t>(std::clamp(sample((x + 0.5f - W / 2.f) / fill + w / 2.f, (y + 0.5f - H / 2.f) / fill + h / 2.f, c), 0.f, 255.f));
+        stbi_image_free(cover);
+        std::error_code ec;
+        fs::create_directories(folder / "sce_sys/livearea/contents", ec);
+        return stbi_write_png((folder / "sce_sys/livearea/contents/bg0.png").c_str(), W, H, 4, art.data(), W * 4) != 0;
+    }
     // the cover, 420 tall, with a soft shadow
     const float scale = std::min(420.f / h, 760.f / w);
     const int cw = static_cast<int>(w * scale), ch = static_cast<int>(h * scale);
@@ -490,6 +501,8 @@ bool fetch_cover(const fs::path &folder, const std::string &id) {
                 LOG_INFO("3DS: box art for {} from {}", id, url);
                 return true;
             }
+            if (!error.empty())
+                LOG_INFO("3DS: no box art at {} ({})", url, error);
         }
     }
     return false;
@@ -582,6 +595,26 @@ std::string kind_of_title(uint64_t title_id) {
     case 0x00040002: return "demo";
     default: return "system";
     }
+}
+
+// An installed update (0004000E) or DLC (0004008C) of a game, in the virtual SD card
+fs::path extra_title_folder(const char *id, bool dlc) {
+    if (!id || std::strlen(id) != 16 || !std::all_of(id, id + 16, [](char c) { return std::isxdigit(static_cast<unsigned char>(c)); }))
+        return {};
+    std::string low(id + 8);
+    std::transform(low.begin(), low.end(), low.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    return azahar_dir() / "sdmc" / "Nintendo 3DS" / "00000000000000000000000000000000" / "00000000000000000000000000000000" / "title"
+        / (dlc ? "0004008c" : "0004000e") / low;
+}
+
+uint64_t folder_bytes(const fs::path &folder) {
+    std::error_code ec;
+    uint64_t total = 0;
+    for (auto it = fs::recursive_directory_iterator(folder, ec); !ec && it != fs::recursive_directory_iterator(); it.increment(ec)) {
+        if (it->is_regular_file(ec))
+            total += it->file_size(ec);
+    }
+    return total;
 }
 
 } // namespace
@@ -773,7 +806,7 @@ char *v3k_n3ds_apps_json(void) {
             continue;
         const fs::path icon = entry.path() / "sce_sys/icon0.png";
         json += fmt::format(R"({}{{"titleId":"{}","title":"{}","version":"{}","category":"3ds","iconPath":"{}","path":"{}","lastPlayed":{},"playTime":{},"customConfig":false,"compat":-1,"compatIssue":0}})",
-            json.empty() ? "" : ",", json_escape(id), json_escape(get("title")), get("kind") == "homebrew" ? "Homebrew" : "3DS",
+            json.empty() ? "" : ",", json_escape(id), json_escape(get("custom_title").empty() ? get("title") : get("custom_title")), get("kind") == "homebrew" ? "Homebrew" : "3DS",
             json_escape(icon.string()), json_escape(entry.path().string()), std::atoll(get("last_played").c_str()), std::atoll(get("play_time").c_str()));
     }
     return dup_string(json);
@@ -817,7 +850,7 @@ bool v3k_n3ds_fetch_art(void) {
             fields = read_fields(folder / "info.txt");
         }
         // done, homebrew, or looked for in the last 3 days
-        if (fields["art"] == "online" || fields["kind"] == "homebrew" || now - std::atoll(fields["art_checked"].c_str()) < 3 * 24 * 3600)
+        if (fields["art"] == "online" || fields["art"] == "custom" || fields["kind"] == "homebrew" || now - std::atoll(fields["art_checked"].c_str()) < 6 * 3600)
             continue;
         std::string id = fields["product"];
         if (id.empty()) {
@@ -1020,6 +1053,97 @@ void v3k_n3ds_touch(int phase, float x, float y) {
 void v3k_n3ds_set_motion(float gx, float gy, float gz, float ax, float ay, float az) {
     if (g_core.handle)
         g_core.azh_set_motion(gx, gy, gz, ax, ay, az);
+}
+
+char *v3k_n3ds_info_json(const char *id) {
+    if (!id || !valid_id(id))
+        return dup_string("{}");
+    std::lock_guard lock(g_mutex);
+    Fields fields = read_fields(library_dir() / id / "info.txt");
+    const auto get = [&](const char *key) {
+        const auto it = fields.find(key);
+        return it != fields.end() ? it->second : std::string{};
+    };
+    std::error_code ec;
+    uint64_t bytes = 0;
+    if (const std::string file = get("file"); !file.empty())
+        bytes = fs::file_size(file, ec);
+    return dup_string(fmt::format(R"({{"title":"{}","customTitle":"{}","publisher":"{}","regions":"{}","product":"{}","titleId":"{}","kind":"{}","file":"{}","bytes":{},"art":"{}"}})",
+        json_escape(get("title")), json_escape(get("custom_title")), json_escape(get("publisher")), json_escape(get("regions")), json_escape(get("product")),
+        json_escape(get("title_id")), json_escape(get("kind")), json_escape(fs::path(get("file")).filename().string()), ec ? 0 : bytes, json_escape(get("art"))));
+}
+
+bool v3k_n3ds_rename(const char *id, const char *title) {
+    if (!id || !valid_id(id))
+        return false;
+    std::lock_guard lock(g_mutex);
+    const fs::path info = library_dir() / id / "info.txt";
+    Fields fields = read_fields(info);
+    if (fields.empty())
+        return false;
+    std::string name = title ? title : "";
+    name.erase(std::remove_if(name.begin(), name.end(), [](char c) { return c == '\n' || c == '\r'; }), name.end());
+    if (name.empty() || name == fields["title"])
+        fields.erase("custom_title");
+    else
+        fields["custom_title"] = name;
+    write_fields(info, fields);
+    return true;
+}
+
+bool v3k_n3ds_set_art(const char *id, const void *data, size_t size) {
+    if (!id || !valid_id(id) || !data || size < 64)
+        return false;
+    const fs::path folder = library_dir() / id;
+    if (!write_cover_art(folder, std::string(static_cast<const char *>(data), size)))
+        return false;
+    std::lock_guard lock(g_mutex);
+    Fields fields = read_fields(folder / "info.txt");
+    if (fields.empty())
+        return false;
+    fields["art"] = "custom";
+    write_fields(folder / "info.txt", fields);
+    LOG_INFO("3DS: new art for {}", id);
+    return true;
+}
+
+char *v3k_n3ds_games_without_art_json(void) {
+    std::lock_guard lock(g_mutex);
+    std::string json;
+    std::error_code ec;
+    for (const auto &entry : fs::directory_iterator(library_dir(), ec)) {
+        if (!entry.is_directory())
+            continue;
+        Fields fields = read_fields(entry.path() / "info.txt");
+        if (fields["id"].empty() || fields["kind"] == "homebrew" || fields["art"] == "online" || fields["art"] == "custom")
+            continue;
+        json += fmt::format(R"({}{{"id":"{}","title":"{}","product":"{}"}})", json.empty() ? "" : ",", json_escape(fields["id"]),
+            json_escape(fields["title"]), json_escape(fields["product"]));
+    }
+    return dup_string("[" + json + "]");
+}
+
+char *v3k_n3ds_extras_json(const char *id) {
+    std::error_code ec;
+    const fs::path update = extra_title_folder(id, false), dlc = extra_title_folder(id, true);
+    const bool has_update = !update.empty() && fs::exists(update / "content", ec);
+    const bool has_dlc = !dlc.empty() && fs::exists(dlc / "content", ec);
+    return dup_string(fmt::format(R"({{"update":{},"dlc":{},"updateBytes":{},"dlcBytes":{}}})", has_update ? "true" : "false",
+        has_dlc ? "true" : "false", has_update ? folder_bytes(update) : 0, has_dlc ? folder_bytes(dlc) : 0));
+}
+
+bool v3k_n3ds_remove_extra(const char *id, bool dlc) {
+    const fs::path folder = extra_title_folder(id, dlc);
+    if (folder.empty())
+        return false;
+    std::error_code ec;
+    fs::remove_all(folder, ec);
+    LOG_INFO("3DS: removed the {} of {}", dlc ? "DLC" : "update", id);
+    return !ec;
+}
+
+char *v3k_n3ds_user_folder(void) {
+    return dup_string(azahar_dir().string());
 }
 
 char *v3k_n3ds_save_folder(const char *id) {

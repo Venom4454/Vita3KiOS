@@ -252,12 +252,14 @@ final class LibraryModel: ObservableObject {
 
     private var fetchingArt = false
 
-    /// Box art for 3DS games (GameTDB), in the background; the home screen redraws when some arrives
+    /// Box art for 3DS games (GameTDB, libretro, SteamGridDB), in the background; the home screen redraws when some arrives
     func fetch3DSArt() {
         guard !fetchingArt, apps.contains(where: { $0.is3DS }) else { return }
         fetchingArt = true
         Task.detached(priority: .utility) {
-            let added = v3k_n3ds_fetch_art()
+            var added = v3k_n3ds_fetch_art()
+            // what GameTDB didn't have: libretro's 3DS box art, then SteamGridDB (with a key)
+            if await N3DSArt.fillMissing() { added = true }
             await MainActor.run {
                 self.fetchingArt = false
                 if added {

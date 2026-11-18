@@ -18,6 +18,7 @@
 
 #include <fmt/format.h>
 
+#include "audio_core/dsp_interface.h"
 #include "audio_core/sink_details.h"
 #include "common/common_paths.h"
 #include "common/file_util.h"
@@ -29,6 +30,7 @@
 #include "common/string_util.h"
 #include "common/vector_math.h"
 #include "core/core.h"
+#include "core/core_timing.h"
 #include "core/frontend/applets/default_applets.h"
 #include "core/frontend/emu_window.h"
 #include "core/frontend/input.h"
@@ -750,15 +752,26 @@ void azh_set_setting(const char* key_c, const char* value_c) {
         return;
     }
 
+    // While a game runs, only what the change needs. System::ApplySettings recreated the audio
+    // output, reloaded every input device and rebuilt the screen shaders on every call: a layout
+    // change (eight settings at once) or a rotation made the game hitch and the sound cut out.
     auto& system = Core::System::GetInstance();
-    if (g_running && system.IsPoweredOn()) {
-        system.ApplySettings();
-        if (layout_changed) {
-            std::scoped_lock lock{g_window_mutex};
-            if (g_window)
-                system.GPU().Renderer().UpdateCurrentFramebufferLayout(g_window->Portrait());
-        }
+    if (!g_running || !system.IsPoweredOn())
+        return;
+    if (layout_changed) {
+        std::scoped_lock lock{g_window_mutex};
+        if (g_window)
+            system.GPU().Renderer().UpdateCurrentFramebufferLayout(g_window->Portrait());
+    } else if (key == "cpu_clock_percentage") {
+        system.CoreTiming().UpdateClockSpeed(v.cpu_clock_percentage.GetValue());
+    } else if (key == "enable_audio_stretching") {
+        system.DSP().EnableStretching(v.enable_audio_stretching.GetValue());
+    } else if (key == "filter_mode" || key == "texture_filter" || key == "render_3d" || key == "factor_3d") {
+        auto& renderer_settings = system.GPU().Renderer().Settings();
+        renderer_settings.shader_update_requested = true;
+        renderer_settings.bg_color_update_requested = true;
     }
+    // volume, frame_limit, resolution_factor and the rest are read live (or at the next boot)
 }
 
 bool azh_boot(const char* path, void* layer, int width, int height, float scale, bool portrait,

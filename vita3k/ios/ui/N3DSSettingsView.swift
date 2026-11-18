@@ -32,6 +32,7 @@ struct N3DSSettingsView: View {
     @AppStorage("n3ds.coolDown") private var coolDown = true
     @AppStorage("n3ds.ffSpeed") private var fastForwardSpeed = "200"
     @State private var landscapeLayout = N3DSSettings.landscapeLayout
+    @State private var steamGridKey = N3DSArt.steamGridKey
     @AppStorage("n3ds.hideWithController") private var hideWithController = true
     @AppStorage("n3ds.haptics") private var haptics = true
     @AppStorage("n3ds.motion") private var motion = true
@@ -76,7 +77,7 @@ struct N3DSSettingsView: View {
             } header: {
                 Text("Screens")
             } footer: {
-                Text("Screens between the controls: the big screen sits between two columns of controls so nothing covers the game, with the other screen small beside them. Tap the small screen (or ⇅) to swap which one is big. On iPad both screens fit in the middle.")
+                Text("Big screen + small screen: the big screen sits between two columns of controls, the other small beside them; tap the small one (or ⇅) to swap. Side by side, controls below: both screens across the top with every control in a band underneath, nothing covered. Side by side at the top: both screens as large as the width allows, flush with the top. The overlay layouts are Azahar's, with the controls drawn over the screens. ⇅ swaps the screens in every layout.")
             }
 
             Section {
@@ -129,6 +130,29 @@ struct N3DSSettingsView: View {
                 Text("Performance and battery")
             } footer: {
                 Text("Battery: 1×, the coolest and longest-lasting. Balanced: 2×. Quality: 3× on newer phones. The phone has no 3D screen, so drawing one eye only is free speed. Cool down when hot drops to 1× while iOS reports the phone as hot, then goes back. Fast forward: the » button in game, or click the right stick on a controller.")
+            }
+
+            Section {
+                SecureField("SteamGridDB API key (optional)", text: Binding(get: { steamGridKey }, set: {
+                    steamGridKey = $0
+                    N3DSArt.steamGridKey = $0
+                }))
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                Link("Get a free key at steamgriddb.com", destination: URL(string: "https://www.steamgriddb.com/profile/preferences/api")!)
+                Button {
+                    for key in UserDefaults.standard.dictionaryRepresentation().keys where key.hasPrefix("n3ds.artTried.") {
+                        UserDefaults.standard.removeObject(forKey: key)
+                    }
+                    model.fetch3DSArt()
+                    message = "Looking for artwork in the background: it appears on the home screen as it arrives."
+                } label: {
+                    Label("Find missing artwork now", systemImage: "photo.badge.arrow.down")
+                }
+            } header: {
+                Text("Artwork")
+            } footer: {
+                Text("3DS games get box art by themselves: from GameTDB (by the game's code), then libretro's 3DS set, then SteamGridDB if you add a key. To choose a different picture, open the game's LiveArea › Artwork. PS Vita games keep their own LiveAreas.")
             }
 
             Section {
@@ -416,14 +440,6 @@ struct N3DSGameDetailsView: View {
     @EnvironmentObject var model: LibraryModel
     @Environment(\.dismiss) private var dismiss
     @State private var confirmDelete = false
-    @State private var importingSave = false
-    @State private var saveMessage: String?
-    @State private var exported: URL?
-
-    private func exportSave() {
-        let (url, problem) = N3DSSaves.exportSave(app)
-        if let url { exported = url } else { saveMessage = problem }
-    }
 
     var body: some View {
         NavigationStack {
@@ -461,22 +477,7 @@ struct N3DSGameDetailsView: View {
                     Text("Saves are kept by the 3DS core in Documents/3DS/azahar (Files app › Hinoki › 3DS).")
                 }
                 if app.version != "Homebrew" {
-                    Section {
-                        Button {
-                            importingSave = true
-                        } label: {
-                            Label("Import save (zip or folder)", systemImage: "square.and.arrow.down")
-                        }
-                        Button {
-                            exportSave()
-                        } label: {
-                            Label("Export save", systemImage: "square.and.arrow.up")
-                        }
-                    } header: {
-                        Text("Save data")
-                    } footer: {
-                        Text("Import takes a save from Checkpoint, JKSM or another emulator: the folder with the save's files (or a zip of it). The current save is backed up to Files › Hinoki › Save Backups first. Close the game before importing.")
-                    }
+                    N3DSGameExtrasSections(app: app)
                 }
                 Section {
                     Button("Delete game", role: .destructive) { confirmDelete = true }
@@ -488,15 +489,6 @@ struct N3DSGameDetailsView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
-            }
-            .fileImporter(isPresented: $importingSave, allowedContentTypes: [.zip, .folder]) { result in
-                if case let .success(url) = result { saveMessage = N3DSSaves.importSave(url, into: app) }
-            }
-            .alert(saveMessage ?? "", isPresented: Binding(get: { saveMessage != nil }, set: { if !$0 { saveMessage = nil } })) {
-                Button("OK", role: .cancel) {}
-            }
-            .sheet(item: Binding(get: { exported.map(ShareItem.init) }, set: { if $0 == nil { exported = nil } })) { item in
-                ShareSheet(items: [item.url])
             }
             .confirmationDialog("Delete \(app.title)?", isPresented: $confirmDelete, titleVisibility: .visible) {
                 Button("Delete", role: .destructive) {
