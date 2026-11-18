@@ -277,11 +277,11 @@ enum N3DSCheatFile {
             } else if line.hasPrefix("*") {
                 if line == "*citra_enabled" {
                     current?.enabled = true
-                } else {
-                    current?.notes += (current?.notes.isEmpty ?? true ? "" : "\n") + String(line.dropFirst())
+                } else if let notes = current?.notes {
+                    current?.notes = notes + (notes.isEmpty ? "" : "\n") + String(line.dropFirst())
                 }
-            } else if !line.isEmpty {
-                current?.code += (current?.code.isEmpty ?? true ? "" : "\n") + line
+            } else if !line.isEmpty, let code = current?.code {
+                current?.code = code + (code.isEmpty ? "" : "\n") + line
             }
         }
         if let current, !current.code.isEmpty { cheats.append(current) }
