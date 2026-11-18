@@ -210,6 +210,9 @@ bool v3k_import_save_data(const char *title_id, const char *path, char **message
 // Where a game keeps its save (ux0/user/00/savedata/<save ID>; it may not exist yet), or NULL for a
 // game without save data. Free with v3k_free_string
 char *v3k_save_folder(const char *title_id);
+// Unpacks a zip into destination (made if missing); *message gets the problem, if any. Free with
+// v3k_free_string
+bool v3k_unzip(const char *zip_path, const char *destination, char **message);
 // A .zip holding the save of an installed game (not a game): + and the Import folder import it as that
 // game's save
 bool v3k_install_is_save(const char *path);

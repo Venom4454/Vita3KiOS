@@ -1631,6 +1631,16 @@ bool v3k_import_save_data(const char *title_id, const char *path, char **message
     return result(true, fmt::format("Save data imported ({} file{}).{}", files, files == 1 ? "" : "s", kept));
 }
 
+bool v3k_unzip(const char *zip_path, const char *destination, char **message) {
+    std::string error;
+    if (!zip_path || !destination)
+        return false;
+    const bool ok = unpack_save_zip(fs::path(zip_path), fs::path(destination), error);
+    if (message)
+        *message = dup_string(error);
+    return ok;
+}
+
 char *v3k_save_folder(const char *title_id) {
     auto *emuenv = ios::get_emuenv();
     const auto app = app_for(title_id);

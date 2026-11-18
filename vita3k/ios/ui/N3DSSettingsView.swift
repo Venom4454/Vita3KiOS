@@ -309,12 +309,121 @@ struct N3DSSettingsView: View {
     }
 }
 
+/// Importing and exporting a 3DS game's save (Azahar keeps it in its virtual SD card)
+@MainActor
+enum N3DSSaves {
+    private static let junk: Set<String> = [".DS_Store", "__MACOSX", "Thumbs.db", "desktop.ini"]
+
+    static func importSave(_ picked: URL, into app: GameApp) -> String {
+        guard !v3k_n3ds_running() else { return "Close the game first, then import its save." }
+        guard let path = takeString(v3k_n3ds_save_folder(app.titleId)) else { return "This game has no save folder." }
+        let target = URL(fileURLWithPath: path)
+        let fm = FileManager.default
+        let access = picked.startAccessingSecurityScopedResource()
+        defer { if access { picked.stopAccessingSecurityScopedResource() } }
+        let work = fm.temporaryDirectory.appendingPathComponent("3ds-save-import-\(UUID().uuidString)")
+        defer { try? fm.removeItem(at: work) }
+
+        var source = picked
+        if picked.pathExtension.lowercased() == "zip" {
+            var text: UnsafeMutablePointer<CChar>?
+            let ok = v3k_unzip(picked.path, work.path, &text)
+            let problem = takeString(text) ?? ""
+            guard ok else { return problem.isEmpty ? "That zip couldn't be read." : problem }
+            source = work
+        }
+        // The save's files may be wrapped in folders (a Checkpoint export: <title>/<date>/files)
+        for _ in 0..<6 {
+            let entries = ((try? fm.contentsOfDirectory(at: source, includingPropertiesForKeys: [.isDirectoryKey])) ?? [])
+                .filter { !junk.contains($0.lastPathComponent) }
+            let folders = entries.filter { (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true }
+            guard entries.count == 1, folders.count == 1 else { break }
+            source = folders[0]
+        }
+        let files = ((try? fm.contentsOfDirectory(atPath: source.path)) ?? []).filter { !junk.contains($0) }
+        guard !files.isEmpty else { return "No save files were found there." }
+
+        // Copied next to the save first, then swapped in: a failed copy changes nothing
+        let incoming = target.deletingLastPathComponent().appendingPathComponent("data.importing")
+        do {
+            try? fm.removeItem(at: incoming)
+            try fm.createDirectory(at: incoming, withIntermediateDirectories: true)
+            for name in files {
+                try fm.copyItem(at: source.appendingPathComponent(name), to: incoming.appendingPathComponent(name))
+            }
+        } catch {
+            try? fm.removeItem(at: incoming)
+            return "The save couldn't be copied: \(error.localizedDescription)"
+        }
+        var kept = ""
+        if let current = try? fm.contentsOfDirectory(atPath: target.path), !current.isEmpty {
+            let backup = saveBackupsFolder().appendingPathComponent("\(safeName(app.title)) (\(app.titleId)) before import \(stamp())")
+            do {
+                try fm.createDirectory(at: backup.deletingLastPathComponent(), withIntermediateDirectories: true)
+                try fm.copyItem(at: target, to: backup)
+                kept = " The previous save is in Files › Hinoki › Save Backups."
+            } catch {
+                try? fm.removeItem(at: incoming)
+                return "The current save couldn't be backed up, so nothing was changed: \(error.localizedDescription)"
+            }
+        }
+        do {
+            if fm.fileExists(atPath: target.path) { try fm.removeItem(at: target) }
+            try fm.moveItem(at: incoming, to: target)
+        } catch {
+            return "The save couldn't be put in place: \(error.localizedDescription)"
+        }
+        v3k_log_ui("3DS: imported the save of \(app.titleId) (\(files.count) files)")
+        return "Save imported (\(files.count) file\(files.count == 1 ? "" : "s")).\(kept)"
+    }
+
+    /// A copy of the save in Save Backups, to share
+    static func exportSave(_ app: GameApp) -> (URL?, String?) {
+        guard let path = takeString(v3k_n3ds_save_folder(app.titleId)) else { return (nil, "This game has no save folder.") }
+        let source = URL(fileURLWithPath: path)
+        let fm = FileManager.default
+        guard let files = try? fm.contentsOfDirectory(atPath: source.path), !files.isEmpty else {
+            return (nil, "There's no save yet: play the game and save first.")
+        }
+        let copy = saveBackupsFolder().appendingPathComponent("\(safeName(app.title)) (\(app.titleId)) \(stamp())")
+        do {
+            try fm.createDirectory(at: copy.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try fm.copyItem(at: source, to: copy)
+            return (copy, nil)
+        } catch {
+            return (nil, "The save couldn't be copied: \(error.localizedDescription)")
+        }
+    }
+
+    private static func saveBackupsFolder() -> URL {
+        URL(fileURLWithPath: NSSearchPathForDirectoriesInDomains(.documentDirectory, .userDomainMask, true)[0]).appendingPathComponent("Save Backups")
+    }
+
+    private static func safeName(_ title: String) -> String {
+        title.components(separatedBy: CharacterSet(charactersIn: "/\\:*?\"<>|")).joined(separator: " ")
+    }
+
+    private static func stamp() -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd HHmmss"
+        return formatter.string(from: Date())
+    }
+}
+
 /// A 3DS game's page (long-press or Information on the home screen)
 struct N3DSGameDetailsView: View {
     let app: GameApp
     @EnvironmentObject var model: LibraryModel
     @Environment(\.dismiss) private var dismiss
     @State private var confirmDelete = false
+    @State private var importingSave = false
+    @State private var saveMessage: String?
+    @State private var exported: URL?
+
+    private func exportSave() {
+        let (url, problem) = N3DSSaves.exportSave(app)
+        if let url { exported = url } else { saveMessage = problem }
+    }
 
     var body: some View {
         NavigationStack {
@@ -351,6 +460,24 @@ struct N3DSGameDetailsView: View {
                 } footer: {
                     Text("Saves are kept by the 3DS core in Documents/3DS/azahar (Files app › Hinoki › 3DS).")
                 }
+                if app.version != "Homebrew" {
+                    Section {
+                        Button {
+                            importingSave = true
+                        } label: {
+                            Label("Import save (zip or folder)", systemImage: "square.and.arrow.down")
+                        }
+                        Button {
+                            exportSave()
+                        } label: {
+                            Label("Export save", systemImage: "square.and.arrow.up")
+                        }
+                    } header: {
+                        Text("Save data")
+                    } footer: {
+                        Text("Import takes a save from Checkpoint, JKSM or another emulator: the folder with the save's files (or a zip of it). The current save is backed up to Files › Hinoki › Save Backups first. Close the game before importing.")
+                    }
+                }
                 Section {
                     Button("Delete game", role: .destructive) { confirmDelete = true }
                 } footer: {
@@ -361,6 +488,15 @@ struct N3DSGameDetailsView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
+            }
+            .fileImporter(isPresented: $importingSave, allowedContentTypes: [.zip, .folder]) { result in
+                if case let .success(url) = result { saveMessage = N3DSSaves.importSave(url, into: app) }
+            }
+            .alert(saveMessage ?? "", isPresented: Binding(get: { saveMessage != nil }, set: { if !$0 { saveMessage = nil } })) {
+                Button("OK", role: .cancel) {}
+            }
+            .sheet(item: Binding(get: { exported.map(ShareItem.init) }, set: { if $0 == nil { exported = nil } })) { item in
+                ShareSheet(items: [item.url])
             }
             .confirmationDialog("Delete \(app.title)?", isPresented: $confirmDelete, titleVisibility: .visible) {
                 Button("Delete", role: .destructive) {
