@@ -1746,25 +1746,65 @@ static spv::Function *make_vert_finalize_function(spv::Builder &b, const SpirvSh
     add_vertex_output_info(SCE_GXM_VERTEX_PROGRAM_OUTPUT_TEXCOORD9, "v_TexCoord9", calculate_copy_comp_count(coord_infos[9]), 13);
 
     add_vertex_output_info(SCE_GXM_VERTEX_PROGRAM_OUTPUT_PSIZE, "v_Psize", 1, 14);
-    // TODO: these should be translated to gl_ClipDistance
-    // add_vertex_output_info(SCE_GXM_VERTEX_PROGRAM_OUTPUT_CLIP0, "v_Clip0", 1);
-    // add_vertex_output_info(SCE_GXM_VERTEX_PROGRAM_OUTPUT_CLIP1, "v_Clip1", 1);
-    // add_vertex_output_info(SCE_GXM_VERTEX_PROGRAM_OUTPUT_CLIP2, "v_Clip2", 1);
-    // add_vertex_output_info(SCE_GXM_VERTEX_PROGRAM_OUTPUT_CLIP3, "v_Clip3", 1);
-    // add_vertex_output_info(SCE_GXM_VERTEX_PROGRAM_OUTPUT_CLIP4, "v_Clip4", 1);
-    // add_vertex_output_info(SCE_GXM_VERTEX_PROGRAM_OUTPUT_CLIP5, "v_Clip5", 1);
-    // add_vertex_output_info(SCE_GXM_VERTEX_PROGRAM_OUTPUT_CLIP6, "v_Clip6", 1);
-    // add_vertex_output_info(SCE_GXM_VERTEX_PROGRAM_OUTPUT_CLIP7, "v_Clip7", 1);
+    // Each clip plane is one scalar distance: written into gl_ClipDistance, not to a varying (from
+    // Vita3K-Plus: Ninja Gaiden Sigma 2's health bar). Locations are only placeholders for the table
+    add_vertex_output_info(SCE_GXM_VERTEX_PROGRAM_OUTPUT_CLIP0, "v_Clip0", 1, 15);
+    add_vertex_output_info(SCE_GXM_VERTEX_PROGRAM_OUTPUT_CLIP1, "v_Clip1", 1, 16);
+    add_vertex_output_info(SCE_GXM_VERTEX_PROGRAM_OUTPUT_CLIP2, "v_Clip2", 1, 17);
+    add_vertex_output_info(SCE_GXM_VERTEX_PROGRAM_OUTPUT_CLIP3, "v_Clip3", 1, 18);
+    add_vertex_output_info(SCE_GXM_VERTEX_PROGRAM_OUTPUT_CLIP4, "v_Clip4", 1, 19);
+    add_vertex_output_info(SCE_GXM_VERTEX_PROGRAM_OUTPUT_CLIP5, "v_Clip5", 1, 20);
+    add_vertex_output_info(SCE_GXM_VERTEX_PROGRAM_OUTPUT_CLIP6, "v_Clip6", 1, 21);
+    add_vertex_output_info(SCE_GXM_VERTEX_PROGRAM_OUTPUT_CLIP7, "v_Clip7", 1, 22);
 
     Operand o_op;
     o_op.bank = RegisterBank::OUTPUT;
     o_op.num = 0;
     o_op.swizzle = SWIZZLE_CHANNEL_4_DEFAULT;
 
+    // Vulkan guarantees 8 clip distances; only the planes this program declares are written
+    uint32_t gxm_clip_count = 0;
+    if (translation_state.is_vulkan && features.support_gxm_clip_planes) {
+        for (uint32_t i = 0; i < 8; i++) {
+            if (vertex_outputs & (SCE_GXM_VERTEX_PROGRAM_OUTPUT_CLIP0 << i))
+                gxm_clip_count++;
+        }
+    }
+    spv::Id clip_var = spv::NoResult;
+    if (gxm_clip_count > 0) {
+        b.addCapability(spv::CapabilityClipDistance);
+        const spv::Id clip_type = b.makeArrayType(b.makeFloatType(32), b.makeUintConstant(gxm_clip_count), 0);
+        clip_var = b.createVariable(spv::NoPrecision, spv::StorageClassOutput, clip_type, "gl_ClipDistance");
+        b.addDecoration(clip_var, spv::DecorationBuiltIn, spv::BuiltInClipDistance);
+        translation_state.interfaces.push_back(clip_var);
+        LOG_INFO("[CLIPPLANE] vertex program {} declares {} clip plane(s)", translation_state.hash, gxm_clip_count);
+    }
+    uint32_t gxm_clip_written = 0;
+
     for (const auto vo : vertex_outputs_list) {
         if (vertex_outputs & vo) {
             const auto vo_typed = static_cast<SceGxmVertexProgramOutputs>(vo);
             const VertexProgramOutputProperties &properties = vertex_properties_map.at(vo_typed);
+
+            if (vo >= SCE_GXM_VERTEX_PROGRAM_OUTPUT_CLIP0) {
+                // A clip plane is a distance for the rasteriser, not a varying: no output variable of its own
+                if (gxm_clip_written < gxm_clip_count) {
+                    spv::Id distance = utils::load(b, parameters, utils, features, o_op, 0b1, 0);
+                    if (translation_state.render_info_id != spv::NoResult) {
+                        // Draws in screen space (viewport off: menus, names, fades) ignore user clip planes on the
+                        // Vita (see the position output below): keep them from clipping those draws away
+                        const spv::Id f32 = b.makeFloatType(32);
+                        const spv::Id viewport_flag = utils::create_access_chain(b, spv::StorageClassUniform, translation_state.render_info_id, { b.makeIntConstant(VERT_UNIFORM_viewport_flag) });
+                        const spv::Id screen_space = b.createOp(spv::OpFOrdLessThan, b.makeBoolType(), { b.createLoad(viewport_flag, spv::NoPrecision), b.makeFloatConstant(0.5f) });
+                        distance = b.createTriOp(spv::OpSelect, f32, screen_space, b.makeFloatConstant(1.0f), distance);
+                    }
+                    const spv::Id slot = utils::create_access_chain(b, spv::StorageClassOutput, clip_var, { b.makeIntConstant(gxm_clip_written) });
+                    b.createStore(distance, slot);
+                    gxm_clip_written++;
+                }
+                o_op.num += properties.component_count;
+                continue;
+            }
 
             // TODO: use real component_count, for now only force PSIZE to have a component count of 1 and other to 4
             const int32_t used_component_count = (vo == SCE_GXM_VERTEX_PROGRAM_OUTPUT_PSIZE) ? 1 : 4;

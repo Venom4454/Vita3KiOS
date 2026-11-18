@@ -36,6 +36,11 @@ PCSF00021 memory-mapping=on native-buffer=on surface-sync=on async-shaders=on | 
 # Killzone Mercenary: same game ran at ~40 FPS with these settings and ~19 FPS with page-table mapping,
 # high accuracy and surface sync on (owner's logs)
 PCSA00107 memory-mapping=on native-buffer=off surface-sync=off high-accuracy=off fps-hack=on cpu-opt=on | Double-buffer memory mapping with surface sync and high accuracy off: about twice the frame rate in testing
+# The other regions (EU, Asia, JP) are the same game and had no line: they ran with the slow defaults
+PCSF00243 memory-mapping=on native-buffer=off surface-sync=off high-accuracy=off fps-hack=on cpu-opt=on | Double-buffer memory mapping with surface sync and high accuracy off: about twice the frame rate in testing
+PCSF00403 memory-mapping=on native-buffer=off surface-sync=off high-accuracy=off fps-hack=on cpu-opt=on | Double-buffer memory mapping with surface sync and high accuracy off: about twice the frame rate in testing
+PCSD00071 memory-mapping=on native-buffer=off surface-sync=off high-accuracy=off fps-hack=on cpu-opt=on | Double-buffer memory mapping with surface sync and high accuracy off: about twice the frame rate in testing
+PCSC00045 memory-mapping=on native-buffer=off surface-sync=off high-accuracy=off fps-hack=on cpu-opt=on | Double-buffer memory mapping with surface sync and high accuracy off: about twice the frame rate in testing
 
 
 # Mobile Suit Gundam: Extreme VS-Force (US, EU, Asia, JP): names, menus and the battle-start banner leave

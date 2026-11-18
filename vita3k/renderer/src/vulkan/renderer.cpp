@@ -752,6 +752,7 @@ bool VKState::create(std::unique_ptr<renderer::State> &state, const Config &conf
             .vertexPipelineStoresAndAtomics = physical_device_features.vertexPipelineStoresAndAtomics,
             .fragmentStoresAndAtomics = physical_device_features.fragmentStoresAndAtomics,
             .shaderStorageImageExtendedFormats = physical_device_features.shaderStorageImageExtendedFormats,
+            .shaderClipDistance = physical_device_features.shaderClipDistance,
             .shaderInt16 = physical_device_features.shaderInt16,
         };
 
@@ -923,6 +924,10 @@ bool VKState::create(std::unique_ptr<renderer::State> &state, const Config &conf
         // Metal compiles a vertex function that writes memory only if nothing is rasterized from it
         features.split_vertex_stores = true;
 #endif
+        // A vertex program's own clip planes (Ninja Gaiden Sigma 2's health bar and other clipped 2D parts
+        // are cut with them) were dropped: clip distances need only the device feature
+        features.support_gxm_clip_planes = static_cast<bool>(physical_device_features.shaderClipDistance);
+        LOG_INFO("Vertex program clip planes: {}", features.support_gxm_clip_planes ? "translated (gl_ClipDistance)" : "dropped (GPU has no shaderClipDistance)");
 
         vk::StructureChain<vk::DeviceCreateInfo,
             vk::PhysicalDeviceBufferDeviceAddressFeatures,
@@ -1489,6 +1494,7 @@ uint32_t VKState::get_features_mask() {
             bool use_memory_mapping : 1;
             bool use_rgb_attributes : 1;
             bool use_scaled_attributes : 1;
+            bool use_gxm_clip_planes : 1;
         };
         uint32_t value;
     } features_mask;
@@ -1500,6 +1506,7 @@ uint32_t VKState::get_features_mask() {
     features_mask.use_memory_mapping = features.enable_memory_mapping;
     features_mask.use_rgb_attributes = features.support_rgb_attributes;
     features_mask.use_scaled_attributes = pipeline_cache.support_scaled_vertex_attribute;
+    features_mask.use_gxm_clip_planes = features.support_gxm_clip_planes;
 
     return features_mask.value;
 }

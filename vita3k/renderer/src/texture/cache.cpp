@@ -700,8 +700,10 @@ void TextureCache::cache_and_bind_texture(const SceGxmTexture &gxm_texture, MemS
 
         configure = true;
         upload = true;
-        // only hash the first mips, assume no game would modify other mips (and faces) without modifying the first one
-        info->texture_size = gxm::texture_size_first_mip(gxm_texture);
+        // track the WHOLE mip chain, not just the first level
+        info->texture_size = gxm::texture_size(gxm_texture);
+        if (info->texture_size > 0 && !is_valid_addr_range(mem, gxm_texture.data_addr << 2, (gxm_texture.data_addr << 2) + info->texture_size))
+            info->texture_size = gxm::texture_size_first_mip(gxm_texture);
         // use the texture_repr representation, it contains everything we need and we can use it to erase the key
         // from texture_lookup later
         info->texture = std::bit_cast<SceGxmTexture>(texture_repr);
@@ -827,6 +829,7 @@ void TextureCache::cache_and_bind_texture(const SceGxmTexture &gxm_texture, MemS
     importing_texture = false;
 
     // set the texture as the mru
+    info->last_use_frame = current_frame;
     texture_queue.set_as_mru(info);
 
     // retrieve the appropriate sampler if needed
@@ -849,6 +852,12 @@ void TextureCache::keep_within_budget(const TextureCacheInfo *keep) {
         const uint64_t before = memory_used;
         texture_queue.for_each_from_lru([&](TextureCacheInfo *candidate) {
             if (memory_used <= memory_budget - memory_budget / 8)
+                return false;
+            // The queue runs from least to most recently used: from the first texture a recent frame used
+            // on, everything left is needed right now (dropping it uploads it again next frame, and the
+            // dropped copy stays in memory until the GPU is done with it)
+            constexpr uint64_t RECENT_FRAMES = 4;
+            if (current_frame - candidate->last_use_frame < RECENT_FRAMES)
                 return false;
             if (candidate == keep || candidate->texture_size == 0)
                 return true;

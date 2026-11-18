@@ -55,6 +55,8 @@ static constexpr size_t TextureCacheSize = 1024;
 
 typedef std::array<uint32_t, 4> TextureGxmDataRepr;
 struct TextureCacheInfo {
+    // frame in which a draw last used this texture (see TextureCache::current_frame)
+    uint64_t last_use_frame = 0;
     uint64_t hash = 0;
     SceGxmTexture texture;
     int index = 0;
@@ -173,6 +175,10 @@ public:
     virtual void release_texture(size_t index) {}
     // Bytes the cached textures may use; 0 means no limit
     uint64_t memory_budget = 0;
+    // Frames drawn so far (counted by the renderer at each new frame): keep_within_budget leaves alone
+    // what the last few frames used, so a game whose working set is bigger than the budget doesn't drop
+    // and upload the same textures again every frame (hitches, and both copies in memory meanwhile)
+    uint64_t current_frame = 0;
     uint64_t memory_used = 0;
     uint32_t textures_held = 0;
     uint32_t seen_pressure = 0;

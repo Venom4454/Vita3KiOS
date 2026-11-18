@@ -758,6 +758,8 @@ void new_frame(VKContext &context) {
 
     state.frame_timestamp++;
     state.current_frame_idx = state.frame_timestamp % MAX_FRAMES_RENDERING;
+    // what the texture cache's memory budget uses to tell the textures in use from the idle ones
+    state.texture_cache.current_frame = state.frame_timestamp;
 
     vk::Device device = state.device;
     FrameObject &frame = state.frame();
