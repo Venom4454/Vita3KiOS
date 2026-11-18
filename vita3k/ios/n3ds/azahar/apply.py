@@ -322,4 +322,42 @@ edit("src/video_core/renderer_vulkan/vk_texture_runtime.cpp",
      "constexpr u64 UPLOAD_BUFFER_SIZE = 512_MiB;",
      "constexpr u64 UPLOAD_BUFFER_SIZE = 128_MiB; // HINOKI: 512 MiB on desktop")
 
+# ---- 2i. performance cores: iOS places threads by their quality of service ----
+# Azahar's threads ran at the default QoS, so iOS was free to run the Vulkan worker (it records and
+# submits every frame's GPU work) and the presentation thread on the efficiency cores. Named threads
+# that pace the game get user-interactive (performance cores); shader builders user-initiated.
+TH = "src/common/thread.cpp"
+edit(TH, """#if !defined(_WIN32) || defined(_MSC_VER)
+void SetCurrentThreadName(const char* name) {
+#ifdef __APPLE__
+    pthread_setname_np(name);""", """#if !defined(_WIN32) || defined(_MSC_VER)
+void SetCurrentThreadName(const char* name) {
+#ifdef __APPLE__
+    pthread_setname_np(name);
+    // HINOKI: the threads that pace the game on the performance cores
+    {
+        const std::string_view thread_name{name};
+        if (thread_name == "VulkanWorker" || thread_name == "VulkanPresent" || thread_name == "Azahar") {
+            pthread_set_qos_class_self_np(QOS_CLASS_USER_INTERACTIVE, 0);
+        } else if (thread_name.find("Shader") != std::string_view::npos ||
+                   thread_name.find("Pipeline") != std::string_view::npos ||
+                   thread_name.find("Worker") != std::string_view::npos) {
+            pthread_set_qos_class_self_np(QOS_CLASS_USER_INITIATED, 0);
+        }
+    }""")
+edit(TH, """void SetCurrentThreadPriority(ThreadPriority new_priority) {
+    pthread_t this_thread = pthread_self();
+""", """void SetCurrentThreadPriority(ThreadPriority new_priority) {
+#ifdef __APPLE__
+    // HINOKI: on Apple platforms the QoS class decides the cores (and the priority)
+    pthread_set_qos_class_self_np(new_priority >= ThreadPriority::High ? QOS_CLASS_USER_INTERACTIVE
+                                  : new_priority == ThreadPriority::Normal ? QOS_CLASS_USER_INITIATED
+                                                                           : QOS_CLASS_UTILITY,
+                                  0);
+    return;
+#endif
+    pthread_t this_thread = pthread_self();
+""")
+edit(TH, "#include <mach/mach.h>\n", "#include <mach/mach.h>\n#include <pthread.h>\n#include <pthread/qos.h> // HINOKI\n#include <string_view>\n")
+
 print("Azahar prepared for Hinoki")

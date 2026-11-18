@@ -28,7 +28,7 @@ struct N3DSSettingsView: View {
     @AppStorage("n3ds.controlsOpacity") private var opacity = 0.9
     @AppStorage("n3ds.controlsScale") private var controlsScale = 1.0
     @AppStorage("n3ds.touchReach") private var touchReach = "near"
-    @AppStorage("n3ds.floatingStick") private var floatingStick = false
+    @AppStorage("n3ds.floatingStick") private var floatingStick = true
     @AppStorage("n3ds.coolDown") private var coolDown = true
     @AppStorage("n3ds.ffSpeed") private var fastForwardSpeed = "200"
     @State private var landscapeLayout = N3DSSettings.landscapeLayout

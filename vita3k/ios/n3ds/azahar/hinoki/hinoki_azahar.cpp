@@ -28,6 +28,7 @@
 #include "common/scm_rev.h"
 #include "common/settings.h"
 #include "common/string_util.h"
+#include "common/thread.h"
 #include "common/vector_math.h"
 #include "core/core.h"
 #include "core/core_timing.h"
@@ -332,6 +333,8 @@ void HandleStateRequest(Core::System& system, azh_event_fn events, void* context
 }
 
 void EmulationThread(std::string path, azh_event_fn events, void* context) {
+    // The CPU, the 3DS GPU and the frame pacing all run here: a performance core (common/thread.cpp)
+    Common::SetCurrentThreadName("Azahar");
     auto& system = Core::System::GetInstance();
     const auto send = [&](int kind, int a, int b, const char* text) {
         if (events)
@@ -350,7 +353,15 @@ void EmulationThread(std::string path, azh_event_fn events, void* context) {
     Frontend::RegisterDefaultApplets(system);
 
     // (the window lives until this thread has ended: no lock, so the UI thread never waits on a boot)
-    const Core::System::ResultStatus result = system.Load(*g_window, path);
+    Core::System::ResultStatus result = system.Load(*g_window, path);
+    // A New 3DS-only game started in Old 3DS mode: start it again as a New 3DS (for this session; the
+    // setting the player chose stays as it is for their other games)
+    if (result == Core::System::ResultStatus::ErrorN3DSApplication && !Settings::values.is_new_3ds.GetValue()) {
+        LOG_INFO(Frontend, "New 3DS-only game in Old 3DS mode: starting it as a New 3DS");
+        // (Load stops before setting anything up for this error: nothing to shut down first)
+        Settings::values.is_new_3ds = true;
+        result = system.Load(*g_window, path);
+    }
     if (result != Core::System::ResultStatus::Success) {
         LOG_CRITICAL(Frontend, "Load failed: {}", static_cast<int>(result));
         send(AZH_EVENT_ERROR, static_cast<int>(result), 0,
@@ -484,6 +495,8 @@ bool azh_init(const char* user_dir, const azh_host* host) {
     Settings::values.use_disk_shader_cache = true;
     Settings::values.use_vsync = true;
     Settings::values.async_presentation = true;
+    // Azahar's Android default: off is faster, and only a few games need it (Settings › 3DS)
+    Settings::values.shaders_accurate_mul = false;
     // There is no 3D screen: the right eye's picture would be drawn for nothing
     Settings::values.disable_right_eye_render = true;
     Settings::values.output_type = AudioCore::SinkType::Cubeb; // Hinoki's RemoteIO sink in that slot

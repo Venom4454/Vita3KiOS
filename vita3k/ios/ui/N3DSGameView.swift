@@ -31,7 +31,7 @@ enum N3DSSettings {
         "large_screen_proportion": "4", "async_shader_compilation": "1", "use_disk_shader_cache": "1",
         "use_vsync": "1", "is_new_3ds": "1", "region_value": "-1", "cpu_clock_percentage": "100",
         "use_cpu_jit": "1", "volume": "1", "filter_mode": "1", "texture_filter": "0",
-        "enable_audio_stretching": "1", "shaders_accurate_mul": "1", "custom_textures": "0",
+        "enable_audio_stretching": "1", "shaders_accurate_mul": "0", "custom_textures": "0",
         "async_presentation": "1", "disable_right_eye_render": "1",
     ]
 
@@ -62,6 +62,15 @@ enum N3DSSettings {
     static var landscapeLayout: String {
         get {
             let defaults = UserDefaults.standard
+            // The controls were redone around the thumbs: everyone starts once from the layout made for
+            // them (the overlay layouts cover the game; any layout can be picked again in game)
+            if !defaults.bool(forKey: "n3ds.layoutReset3") {
+                defaults.set(true, forKey: "n3ds.layoutReset3")
+                if let chosen = defaults.string(forKey: "n3ds.screenLayout"), !hinokiLayouts.contains(chosen) {
+                    defaults.set("hinoki", forKey: "n3ds.screenLayout")
+                    defaults.set("6", forKey: "n3ds.layout_option")
+                }
+            }
             if var chosen = defaults.string(forKey: "n3ds.screenLayout") {
                 // Azahar's side by side covered the screens with the controls: Hinoki's replaces it once
                 if chosen == "3" && !defaults.bool(forKey: "n3ds.sbsMigrated") {
@@ -105,7 +114,8 @@ enum N3DSSettings {
     static var hideControlsWithController: Bool { bool("n3ds.hideWithController", true) }
     static var haptics: Bool { bool("n3ds.haptics", true) }
     static var motionControls: Bool { bool("n3ds.motion", true) }
-    static var floatingStick: Bool { bool("n3ds.floatingStick", false) }
+    /// On by default: the Circle Pad starts where the thumb lands near it
+    static var floatingStick: Bool { bool("n3ds.floatingStick", true) }
     /// Lower the resolution while the phone is hot
     static var coolDown: Bool { bool("n3ds.coolDown", true) }
     /// Share of a button's size around it that still presses it
@@ -726,7 +736,7 @@ final class N3DSGameViewController: UIViewController {
 
     private func screenPlan(bounds: CGRect, safe: UIEdgeInsets, unit: CGFloat) -> ScreenPlan {
         let width = bounds.width, height = bounds.height
-        let gutter = min(max(width * 0.19, 118), 210) * CGFloat(min(max(N3DSSettings.controlsScale, 0.8), 1.25))
+        let gutter = min(max(width * 0.21, 124), 220) * CGFloat(min(max(N3DSSettings.controlsScale, 0.8), 1.25))
         let centre = width - gutter * 2
         let rowSpace: CGFloat = 34 // the icon buttons above the screens
 
@@ -852,131 +862,161 @@ final class N3DSGameViewController: UIViewController {
 
     private func place(_ key: N3DSKey, _ frame: CGRect) { button(key)?.frame = frame }
 
-    /// Landscape: a column of controls on each side (outside the screens in Hinoki's layout). Portrait:
-    /// everything below the screens.
+    /// Where everything goes, made to be held: the Circle Pad where the left thumb rests (lower left),
+    /// A B X Y where the right thumb rests (lower right), the D-pad and C-stick just above them, L/ZL and
+    /// R/ZR in the top corners, SELECT HOME START (with the menu, fast forward and swap) in one small row.
+    /// Then the player's own moves and sizes (Edit controls) on top.
     private func layoutControls(plan: ScreenPlan?) {
         let bounds = view.bounds, safe = view.safeAreaInsets
         let u = controlUnit
         let newMode = N3DSSettings.value("is_new_3ds") == "1"
         var circleFrame = CGRect.zero
+        miniScreenButton.isHidden = true
 
         if isPortrait {
-            let left = safe.left + 16 * u, right = bounds.width - safe.right - 16 * u
-            let bottom = bounds.height - max(safe.bottom, 10) - 8 * u
+            let left = safe.left + 14 * u, right = bounds.width - safe.right - 14 * u
+            let bottom = bounds.height - max(safe.bottom, 10) - 6 * u
             let top = gameView.frame.maxY + 8 * u
-            let face = 54 * u, stick = 108 * u, dpadSize = 124 * u, small = 30 * u
-            let shoulderW = 62 * u, shoulderH = 36 * u // room for the icon buttons between them
-            place(.l, CGRect(x: left, y: top, width: shoulderW, height: shoulderH))
-            place(.zl, CGRect(x: left + shoulderW + 8 * u, y: top, width: shoulderW * 0.75, height: shoulderH))
-            place(.r, CGRect(x: right - shoulderW, y: top, width: shoulderW, height: shoulderH))
-            place(.zr, CGRect(x: right - shoulderW * 1.75 - 8 * u, y: top, width: shoulderW * 0.75, height: shoulderH))
-
-            let rowY = bottom - small
-            let smallW = 70 * u
-            place(.select, CGRect(x: bounds.midX - smallW * 1.6, y: rowY, width: smallW, height: small))
-            place(.home, CGRect(x: bounds.midX - smallW / 2, y: rowY, width: smallW, height: small))
-            place(.start, CGRect(x: bounds.midX + smallW * 0.6, y: rowY, width: smallW, height: small))
-
-            let area = CGRect(x: left, y: top + shoulderH + 10 * u, width: right - left, height: rowY - 10 * u - (top + shoulderH + 10 * u))
-            // left: Circle Pad above the D-pad; right: face buttons above the C-stick
-            let gap = max((area.height - stick - dpadSize) / 3, 4)
-            circleFrame = CGRect(x: left + 4 * u, y: area.minY + gap, width: stick, height: stick)
-            dpad.frame = CGRect(x: left, y: circleFrame.maxY + gap, width: dpadSize, height: dpadSize)
-            let faceCenter = CGPoint(x: right - face * 1.55, y: area.minY + gap + face * 1.55)
-            layoutFace(center: faceCenter, size: face)
-            let cSize = 56 * u
-            cstick.frame = CGRect(x: right - face * 1.55 - cSize / 2, y: min(faceCenter.y + face * 1.6 + gap, rowY - cSize - 8 * u), width: cSize, height: cSize)
-            // the icon buttons between the shoulder buttons
+            let shoulderW = 62 * u, shoulderH = 36 * u
+            placeShoulders(left: left, right: right, top: top, width: shoulderW, height: shoulderH)
             layoutIconRow(center: CGPoint(x: bounds.midX, y: top + shoulderH / 2))
-            miniScreenButton.isHidden = true
+
+            let small = 28 * u, pillW = 66 * u
+            let rowY = bottom - small
+            placeSystemRow(center: CGPoint(x: bounds.midX, y: rowY + small / 2), pillW: pillW, height: small, withIcons: false)
+
+            // left: the D-pad, the Circle Pad under it; right: the C-stick, A B X Y under it
+            let areaTop = top + shoulderH + 10 * u, areaBottom = rowY - 8 * u
+            let space = areaBottom - areaTop
+            let stick = min(124 * u, space * 0.52, (right - left) * 0.36)
+            let dpadSize = max(min(112 * u, space - stick - 8 * u, (right - left) * 0.33), 64)
+            circleFrame = CGRect(x: left, y: areaBottom - stick, width: stick, height: stick)
+            dpad.frame = CGRect(x: left + (stick - dpadSize) / 2 + 10 * u, y: max(areaTop, circleFrame.minY - 8 * u - dpadSize), width: dpadSize, height: dpadSize)
+            let face = min(56 * u, (right - left) * 0.36 / 3.1, space / 4.3)
+            let faceCenter = CGPoint(x: right - face * 1.55, y: areaBottom - face * 1.55)
+            layoutFace(center: faceCenter, size: face)
+            let cSize = newMode ? max(min(54 * u, space - face * 3.1 - 8 * u), 0) : 0
+            cstick.frame = CGRect(x: faceCenter.x - face * 1.55 - cSize * 0.2, y: max(areaTop, faceCenter.y - face * 1.55 - 8 * u - cSize), width: cSize, height: cSize)
         } else if let strip = plan?.strip {
-            circleFrame = layoutBand(strip, u: u, newMode: newMode)
-            miniScreenButton.isHidden = true
+            circleFrame = layoutBand(strip, plan: plan, u: u, newMode: newMode)
         } else {
-            let gutter = plan?.gutter ?? min(max(bounds.width * 0.19, 118), 210) * CGFloat(min(max(N3DSSettings.controlsScale, 0.8), 1.25))
+            // two columns: in Hinoki's big + small layout outside the screens, over their edges in the
+            // overlay layouts
+            let gutter = plan?.gutter ?? min(max(bounds.width * 0.2, 130), 230) * CGFloat(min(max(N3DSSettings.controlsScale, 0.8), 1.25))
             let leftX = max(safe.left * 0.45, 10), rightEdge = bounds.width - max(safe.right * 0.45, 10)
             let column = gutter - leftX - 8
-            let top = max(safe.top, 8)
-            let bottom = bounds.height - max(safe.bottom, 8)
+            let top = max(safe.top, 6)
+            let bottom = bounds.height - max(safe.bottom, 6)
             let shoulderH = 34 * u
-            let small = 28 * u
+            placeShoulders(left: leftX, right: rightEdge, top: top, width: newMode ? column * 0.56 : column, height: shoulderH, columnWidth: column)
 
-            // shoulders: L | ZL on the left, ZR | R on the right (ZL/ZR only on a New 3DS)
-            let shoulderW = newMode ? column * 0.56 : column
-            place(.l, CGRect(x: leftX, y: top, width: shoulderW, height: shoulderH))
-            place(.zl, CGRect(x: leftX + shoulderW + 6, y: top, width: column - shoulderW - 6, height: shoulderH))
-            place(.r, CGRect(x: rightEdge - shoulderW, y: top, width: shoulderW, height: shoulderH))
-            place(.zr, CGRect(x: rightEdge - column, y: top, width: column - shoulderW - 6, height: shoulderH))
+            // left column: the Circle Pad at the bottom (where the thumb rests), the D-pad above it
+            let leftTop = top + shoulderH + 8
+            let stick = min(column, 126 * u, (bottom - leftTop) * 0.55)
+            circleFrame = CGRect(x: leftX + (column - stick) / 2, y: bottom - stick, width: stick, height: stick)
+            let dpadRoom = circleFrame.minY - 6 - leftTop
+            let dpadSize = max(min(column * 0.96, 116 * u, dpadRoom), 64)
+            dpad.frame = CGRect(x: leftX + (column - dpadSize) / 2, y: max(leftTop, circleFrame.minY - 6 - dpadSize), width: dpadSize, height: dpadSize)
 
-            // bottom rows: SELECT and HOME on the left, START (and the C-stick) on the right
-            let pillW = (column - 6) / 2
-            place(.select, CGRect(x: leftX, y: bottom - small, width: pillW, height: small))
-            place(.home, CGRect(x: leftX + pillW + 6, y: bottom - small, width: pillW, height: small))
-
-            // left column: Circle Pad over the D-pad, in the space between
-            let leftSpace = CGRect(x: leftX, y: top + shoulderH + 8, width: column, height: bottom - small - 8 - (top + shoulderH + 8))
-            let stick = min(column * 0.95, 112 * u, leftSpace.height * 0.47)
-            let dpadSize = min(column, 118 * u, leftSpace.height * 0.5)
-            let leftGap = max((leftSpace.height - stick - dpadSize) / 3, 2)
-            circleFrame = CGRect(x: leftX + (column - stick) / 2, y: leftSpace.minY + leftGap, width: stick, height: stick)
-            dpad.frame = CGRect(x: leftX + (column - dpadSize) / 2, y: circleFrame.maxY + leftGap, width: dpadSize, height: dpadSize)
-
-            // right column: (the small screen,) the face buttons, START with the C-stick
+            // right column: (the small screen,) the C-stick, A B X Y at the bottom
             var rightTop = top + shoulderH + 8
             if let mini = plan?.mini {
                 miniScreenButton.isHidden = false
                 miniScreenButton.frame = mini
                 miniScreenButton.viewWithTag(1)?.frame = CGRect(x: mini.width - 20, y: 2, width: 18, height: 18)
                 rightTop = mini.maxY + 8
-            } else {
-                miniScreenButton.isHidden = true
             }
-            let cSize = newMode ? min(small * 1.6, column * 0.4) : 0
-            let startW = newMode ? column - cSize - 8 : column * 0.6
-            place(.start, CGRect(x: rightEdge - startW, y: bottom - small, width: startW, height: small))
-            cstick.frame = CGRect(x: rightEdge - column, y: bottom - cSize, width: cSize, height: cSize)
-            let faceBottom = bottom - max(small, cSize) - 6
-            let faceSpace = faceBottom - rightTop
-            let face = min(column / 3.1, 50 * u, faceSpace / 3.1)
-            layoutFace(center: CGPoint(x: rightEdge - column / 2, y: rightTop + faceSpace / 2), size: face)
+            let face = min(column / 3.1, 54 * u, (bottom - rightTop) / 3.6)
+            let faceCenter = CGPoint(x: rightEdge - column / 2, y: bottom - face * 1.55)
+            layoutFace(center: faceCenter, size: face)
+            let faceTop = faceCenter.y - face * 1.55
+            let cRoom = faceTop - 6 - rightTop
+            var cSize = newMode ? max(min(52 * u, cRoom, column * 0.42), 0) : 0
+            cstick.frame = CGRect(x: rightEdge - column, y: faceTop - 6 - cSize, width: cSize, height: cSize)
+            if newMode && cSize < 34 {
+                // no room above the buttons (under a tall small screen): just inside them instead
+                cSize = 40 * u
+                cstick.frame = CGRect(x: rightEdge - column - cSize * 0.5, y: faceTop - cSize * 0.4, width: cSize, height: cSize)
+            }
 
-            // menu, fast forward and swap above the screens, in the middle
-            var rowY = top + 13
+            // SELECT HOME [menu » ⇅] START across the top, between the shoulder buttons
+            var rowY = top + 15
             if let plan {
                 let centralTop = plan.mini == nil ? min(plan.top.minY, plan.bottom.minY) : (bottomScreenBig ? plan.bottom.minY : plan.top.minY)
                 if centralTop > 30 { rowY = centralTop / 2 }
             }
-            layoutIconRow(center: CGPoint(x: bounds.midX, y: max(rowY, 15)))
+            placeSystemRow(center: CGPoint(x: bounds.midX, y: max(rowY, 15)), pillW: 60 * u, height: 26 * u, withIcons: true)
         }
 
-        // floating Circle Pad: a landing area around where it's drawn
-        if N3DSSettings.floatingStick {
-            circle.frame = circleFrame.insetBy(dx: -circleFrame.width * 0.55, dy: -circleFrame.width * 0.55).intersection(bounds)
+        circleFrame = applyPlacements(circleFrame: circleFrame)
+        circleFrameNow = circleFrame
+
+        // Floating Circle Pad: the pad comes to the thumb anywhere around where it's drawn (never over
+        // the touch screen)
+        if N3DSSettings.floatingStick && editor == nil {
+            var zone = circleFrame.insetBy(dx: -circleFrame.width * 0.6, dy: -circleFrame.width * 0.6).intersection(bounds)
+            if isPortrait {
+                zone = zone.intersection(CGRect(x: 0, y: gameView.frame.maxY, width: bounds.width, height: bounds.height - gameView.frame.maxY))
+            } else if let plan {
+                let touch = plan.bottom
+                if zone.intersects(touch) {
+                    if touch.minX >= circleFrame.maxX {
+                        zone.size.width = touch.minX - zone.minX
+                    } else if touch.maxY <= circleFrame.minY {
+                        let cut = touch.maxY - zone.minY
+                        zone.origin.y += cut
+                        zone.size.height -= cut
+                    } else {
+                        zone = circleFrame
+                    }
+                }
+            } else {
+                // Azahar's layouts: where the touch screen is isn't known here, keep the area tight
+                zone = circleFrame.insetBy(dx: -circleFrame.width * 0.3, dy: -circleFrame.width * 0.3).intersection(bounds)
+            }
+            circle.frame = zone.union(circleFrame)
             circle.configure(floating: true, pad: circleFrame)
         } else {
             circle.frame = circleFrame
             circle.configure(floating: false, pad: circleFrame)
         }
+        editor?.refresh()
     }
 
-    /// Side-by-side layouts: every control in a band along the bottom, left to right
-    /// [L/ZL] [D-pad] [Circle Pad]   [SELECT HOME START, icons above]   [C-stick] [A B X Y] [ZR/R].
+    private func placeShoulders(left: CGFloat, right: CGFloat, top: CGFloat, width: CGFloat, height: CGFloat, columnWidth: CGFloat? = nil) {
+        place(.l, CGRect(x: left, y: top, width: width, height: height))
+        place(.r, CGRect(x: right - width, y: top, width: width, height: height))
+        let zlWidth = max(columnWidth.map { $0 - width - 6 } ?? width * 0.75, 0)
+        place(.zl, CGRect(x: left + width + 6, y: top, width: zlWidth, height: height))
+        place(.zr, CGRect(x: right - width - 6 - zlWidth, y: top, width: zlWidth, height: height))
+    }
+
+    /// SELECT and HOME on the left of the row, START on the right, the icon buttons in the middle (or not)
+    private func placeSystemRow(center: CGPoint, pillW: CGFloat, height: CGFloat, withIcons: Bool) {
+        let icons: CGFloat = withIcons ? 3 * 30 + 2 * 10 + 24 : 12
+        place(.select, CGRect(x: center.x - icons / 2 - pillW * 2 - 6, y: center.y - height / 2, width: pillW, height: height))
+        place(.home, CGRect(x: center.x - icons / 2 - pillW, y: center.y - height / 2, width: pillW, height: height))
+        place(.start, CGRect(x: center.x + icons / 2, y: center.y - height / 2, width: pillW, height: height))
+        if withIcons { layoutIconRow(center: center) }
+    }
+
+    /// Side-by-side layouts: the controls in a band along the bottom, left to right
+    /// [Circle Pad] [D-pad]   [SELECT HOME START, icons above]   [C-stick] [A B X Y], the shoulder
+    /// buttons in the margins beside the screens (or in the top corners when there's no margin).
     /// Returns where the Circle Pad goes.
-    private func layoutBand(_ band: CGRect, u: CGFloat, newMode: Bool) -> CGRect {
+    private func layoutBand(_ band: CGRect, plan: ScreenPlan?, u: CGFloat, newMode: Bool) -> CGRect {
         let safe = view.safeAreaInsets
         let left = band.minX + max(safe.left * 0.45, 10), right = band.maxX - max(safe.right * 0.45, 10)
         let height = band.height
-        let gap = 10 * u
-        // natural sizes, shrunk together if the row is wider than the screen
-        var shoulderW = 56 * u, dpadSize = min(height * 0.94, 120 * u), stick = min(height * 0.86, 108 * u)
-        var face = min(height / 3.1, 46 * u)
+        let gap = 12 * u
+        var dpadSize = min(height * 0.9, 116 * u), stick = min(height * 0.96, 126 * u)
+        var face = min(height / 3.1, 50 * u)
         var cSize = newMode ? min(height * 0.42, 52 * u) : 0
         let pillW = 58 * u, small = 26 * u
         let middle = pillW * 3 + 12
-        let needed = shoulderW * 2 + dpadSize + stick + face * 3.1 + cSize + middle + gap * 8
+        let needed = dpadSize + stick + face * 3.1 + cSize + middle + gap * 6
         let fit = min(1, (right - left) / needed)
         if fit < 1 {
-            shoulderW *= fit
             dpadSize *= fit
             stick *= fit
             face *= fit
@@ -984,29 +1024,206 @@ final class N3DSGameViewController: UIViewController {
         }
         let midY = band.midY
 
-        // left: shoulders stacked, D-pad, Circle Pad
-        let shoulderH = newMode ? (min(height, 112 * u) - 6) / 2 : min(height, 112 * u) * 0.5
-        let shoulderTop = midY - (newMode ? shoulderH + 3 : shoulderH / 2)
-        place(.l, CGRect(x: left, y: shoulderTop, width: shoulderW, height: shoulderH))
-        place(.zl, CGRect(x: left, y: shoulderTop + shoulderH + 6, width: shoulderW, height: shoulderH))
-        dpad.frame = CGRect(x: left + shoulderW + gap, y: midY - dpadSize / 2, width: dpadSize, height: dpadSize)
-        let circleFrame = CGRect(x: dpad.frame.maxX + gap, y: midY - stick / 2, width: stick, height: stick)
+        // shoulders: beside the screens when there's a margin, else in the top corners
+        let screens = plan.map { $0.top.union($0.bottom) } ?? .zero
+        let margin = screens.minX - left
+        let top = max(safe.top, 6)
+        if margin >= 50 {
+            let w = min(margin - 6, 70 * u), h = min(40 * u, (screens.height - 12) / 2)
+            place(.l, CGRect(x: left, y: top, width: w, height: h))
+            place(.zl, CGRect(x: left, y: top + h + 6, width: w, height: h))
+            place(.r, CGRect(x: right - w, y: top, width: w, height: h))
+            place(.zr, CGRect(x: right - w, y: top + h + 6, width: w, height: h))
+        } else {
+            placeShoulders(left: left, right: right, top: top, width: 64 * u, height: 32 * u)
+        }
 
-        // right: shoulders stacked, face buttons, C-stick
-        place(.r, CGRect(x: right - shoulderW, y: shoulderTop, width: shoulderW, height: shoulderH))
-        place(.zr, CGRect(x: right - shoulderW, y: shoulderTop + shoulderH + 6, width: shoulderW, height: shoulderH))
-        let faceCenter = CGPoint(x: right - shoulderW - gap - face * 1.55, y: midY)
+        // left: the Circle Pad on the outside (thumb), the D-pad inside it
+        let circleFrame = CGRect(x: left, y: midY - stick / 2, width: stick, height: stick)
+        dpad.frame = CGRect(x: circleFrame.maxX + gap, y: midY - dpadSize / 2, width: dpadSize, height: dpadSize)
+
+        // right: A B X Y on the outside, the C-stick inside them
+        let faceCenter = CGPoint(x: right - face * 1.55, y: midY)
         layoutFace(center: faceCenter, size: face)
         cstick.frame = CGRect(x: faceCenter.x - face * 1.55 - gap - cSize, y: midY - cSize / 2, width: cSize, height: cSize)
 
         // middle: SELECT HOME START at the bottom, the icon buttons above them
-        let centreX = (circleFrame.maxX + (newMode ? cstick.frame.minX : faceCenter.x - face * 1.55)) / 2
+        let centreX = (dpad.frame.maxX + (newMode ? cstick.frame.minX : faceCenter.x - face * 1.55)) / 2
         let rowY = band.maxY - small
         place(.select, CGRect(x: centreX - pillW * 1.5 - 6, y: rowY, width: pillW, height: small))
         place(.home, CGRect(x: centreX - pillW / 2, y: rowY, width: pillW, height: small))
         place(.start, CGRect(x: centreX + pillW / 2 + 6, y: rowY, width: pillW, height: small))
         layoutIconRow(center: CGPoint(x: centreX, y: max(band.minY + 15, rowY - 26)))
         return circleFrame
+    }
+
+    // MARK: Edit controls (move and resize, kept per screen layout)
+
+    enum ControlGroup: String, CaseIterable {
+        case circle, dpad, face, cstick, left, right, system
+    }
+
+    struct Placement: Codable, Equatable {
+        /// offset as a share of the screen's width and height (so it fits other phones)
+        var dx: CGFloat = 0
+        var dy: CGFloat = 0
+        var scale: CGFloat = 1
+    }
+
+    private var placements: [String: Placement] = [:]
+    /// where the Circle Pad is drawn (its view can be a larger landing area)
+    private var circleFrameNow = CGRect.zero
+    private var placementsLoadedFor = ""
+    private var editor: N3DSControlEditor?
+
+    private var placementsKey: String { "n3ds.controls." + (isPortrait ? "portrait" : N3DSSettings.landscapeLayout) }
+
+    private func loadPlacementsIfNeeded() {
+        guard placementsLoadedFor != placementsKey else { return }
+        placementsLoadedFor = placementsKey
+        if let data = UserDefaults.standard.data(forKey: placementsKey), let saved = try? JSONDecoder().decode([String: Placement].self, from: data) {
+            placements = saved
+        } else {
+            placements = [:]
+        }
+    }
+
+    private func savePlacements() {
+        if placements.isEmpty {
+            UserDefaults.standard.removeObject(forKey: placementsKey)
+        } else if let data = try? JSONEncoder().encode(placements) {
+            UserDefaults.standard.set(data, forKey: placementsKey)
+        }
+    }
+
+    private func groupViews(_ group: ControlGroup) -> [UIView] {
+        switch group {
+        case .circle: []
+        case .dpad: [dpad]
+        case .face: [N3DSKey.a, .b, .x, .y].compactMap { button($0) }
+        case .cstick: N3DSSettings.value("is_new_3ds") == "1" ? [cstick] : []
+        case .left: [N3DSKey.l, .zl].compactMap { button($0) }
+        case .right: [N3DSKey.r, .zr].compactMap { button($0) }
+        case .system: [N3DSKey.select, .home, .start].compactMap { button($0) }
+        }
+    }
+
+    private func moved(_ rect: CGRect, around center: CGPoint, by placement: Placement) -> CGRect {
+        let bounds = view.bounds
+        return CGRect(x: center.x + (rect.minX - center.x) * placement.scale + placement.dx * bounds.width,
+                      y: center.y + (rect.minY - center.y) * placement.scale + placement.dy * bounds.height,
+                      width: rect.width * placement.scale, height: rect.height * placement.scale)
+    }
+
+    /// Kept on screen
+    private func shiftInside(_ box: CGRect) -> CGPoint {
+        let bounds = view.bounds
+        return CGPoint(x: max(bounds.minX - box.minX, 0) + min(bounds.maxX - box.maxX, 0),
+                       y: max(bounds.minY - box.minY, 0) + min(bounds.maxY - box.maxY, 0))
+    }
+
+    /// The player's moves and sizes over the default layout; returns where the Circle Pad goes
+    private func applyPlacements(circleFrame: CGRect) -> CGRect {
+        loadPlacementsIfNeeded()
+        var circleOut = circleFrame
+        for group in ControlGroup.allCases {
+            guard let placement = placements[group.rawValue], placement != Placement() else { continue }
+            if group == .circle {
+                let rect = moved(circleFrame, around: CGPoint(x: circleFrame.midX, y: circleFrame.midY), by: placement)
+                let shift = shiftInside(rect)
+                circleOut = rect.offsetBy(dx: shift.x, dy: shift.y)
+                continue
+            }
+            let members = groupViews(group)
+            let box = members.map(\.frame).reduce(CGRect.null) { $0.union($1) }
+            guard !box.isNull else { continue }
+            let center = CGPoint(x: box.midX, y: box.midY)
+            let frames = members.map { moved($0.frame, around: center, by: placement) }
+            let shift = shiftInside(frames.reduce(CGRect.null) { $0.union($1) })
+            for (member, frame) in zip(members, frames) { member.frame = frame.offsetBy(dx: shift.x, dy: shift.y) }
+        }
+        return circleOut
+    }
+
+    func groupFrame(_ group: ControlGroup) -> CGRect {
+        group == .circle ? circleFrameNow : groupViews(group).map(\.frame).reduce(CGRect.null) { $0.union($1) }
+    }
+
+    /// The smallest group under the finger
+    func group(at point: CGPoint) -> ControlGroup? {
+        ControlGroup.allCases.filter { !groupFrame($0).isNull && groupFrame($0).insetBy(dx: -14, dy: -14).contains(point) }
+            .min { groupFrame($0).width * groupFrame($0).height < groupFrame($1).width * groupFrame($1).height }
+    }
+
+    func placement(_ group: ControlGroup) -> Placement { placements[group.rawValue] ?? Placement() }
+
+    func setPlacement(_ placement: Placement, for group: ControlGroup) {
+        placements[group.rawValue] = placement == Placement() ? nil : placement
+        view.setNeedsLayout()
+        view.layoutIfNeeded()
+    }
+
+    func resetPlacements() {
+        placements = [:]
+        view.setNeedsLayout()
+        view.layoutIfNeeded()
+    }
+
+    private func beginEditingControls() {
+        guard editor == nil else { return }
+        if controlsHidden { setControlsHidden(false) }
+        releaseTouchControls()
+        if running { v3k_n3ds_set_paused(true) }
+        menuOpen = true
+        overlay.isUserInteractionEnabled = false
+        let newEditor = N3DSControlEditor(owner: self)
+        newEditor.frame = view.bounds
+        newEditor.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        view.addSubview(newEditor)
+        editor = newEditor
+        view.setNeedsLayout()
+        view.layoutIfNeeded()
+        newEditor.refresh()
+    }
+
+    func endEditingControls(save: Bool) {
+        guard let editor else { return }
+        if save {
+            savePlacements()
+        } else {
+            placementsLoadedFor = ""
+        }
+        editor.removeFromSuperview()
+        self.editor = nil
+        overlay.isUserInteractionEnabled = true
+        view.setNeedsLayout()
+        view.layoutIfNeeded()
+        closeMenu()
+        if save { showToast("Controls saved for this layout") }
+    }
+
+    /// The screen layouts, with the current one ticked
+    private func showLayoutPicker() {
+        let sheet = UIAlertController(title: "Screen layout", message: isPortrait ? "Upright, the screens are stacked above the controls. These are for holding the phone sideways." : nil, preferredStyle: .actionSheet)
+        for (value, name) in N3DSSettings.landscapeLayouts {
+            let current = N3DSSettings.landscapeLayout == value
+            sheet.addAction(UIAlertAction(title: (current ? "✓ " : "") + name, style: .default) { [weak self] _ in
+                guard let self else { return }
+                N3DSSettings.landscapeLayout = value
+                if !N3DSSettings.hinokiLayouts.contains(value) {
+                    v3k_n3ds_set_setting("swap_screen", N3DSSettings.value("swap_screen"))
+                }
+                lastLayoutSent = ""
+                view.setNeedsLayout()
+                view.layoutIfNeeded()
+                closeMenu()
+            })
+        }
+        sheet.addAction(UIAlertAction(title: "Back", style: .cancel) { [weak self] _ in
+            self?.menuOpen = false
+            self?.showMenu()
+        })
+        present(sheet: sheet)
     }
 
     private func layoutFace(center: CGPoint, size face: CGFloat) {
@@ -1238,6 +1455,12 @@ final class N3DSGameViewController: UIViewController {
             loadingLabel.text = b > 0 && b < 100 ? "\(stage)… \(b)%" : "\(stage)…"
         case 2:
             running = true
+            if !UserDefaults.standard.bool(forKey: "n3ds.controlsTipShown") {
+                UserDefaults.standard.set(true, forKey: "n3ds.controlsTipShown")
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
+                    self?.showToast("Tip: ☰ › Edit controls moves and resizes the buttons; ☰ › Screen layout changes the screens")
+                }
+            }
             UIView.animate(withDuration: 0.25) {
                 self.loadingLabel.alpha = 0
                 self.loadingSpinner.alpha = 0
@@ -1357,12 +1580,11 @@ final class N3DSGameViewController: UIViewController {
             self?.swapScreens()
             self?.closeMenu()
         })
-        if !isPortrait {
-            sheet.addAction(UIAlertAction(title: "Next screen layout", style: .default) { [weak self] _ in
-                self?.nextLayout()
-                self?.closeMenu()
-            })
-        }
+        sheet.addAction(UIAlertAction(title: "Screen layout…", style: .default) { [weak self] _ in self?.showLayoutPicker() })
+        sheet.addAction(UIAlertAction(title: "Edit controls (move and resize)", style: .default) { [weak self] _ in
+            self?.menuOpen = false
+            self?.beginEditingControls()
+        })
         sheet.addAction(UIAlertAction(title: controlsHidden ? "Show touch controls" : "Hide touch controls", style: .default) { [weak self] _ in
             guard let self else { return }
             setControlsHidden(!controlsHidden)
@@ -1448,4 +1670,132 @@ final class PaddedLabel: UILabel {
         let inner = super.sizeThatFits(CGSize(width: size.width - 24, height: size.height - 16))
         return CGSize(width: inner.width + 24, height: inner.height + 16)
     }
+}
+
+/// Edit controls: every group outlined; drag one to move it, pinch to resize it. Done keeps the
+/// changes for this screen layout (and orientation), Reset puts everything back.
+final class N3DSControlEditor: UIView, UIGestureRecognizerDelegate {
+    private weak var owner: N3DSGameViewController?
+    private var outlines: [N3DSGameViewController.ControlGroup: CAShapeLayer] = [:]
+    private let bar = UIStackView()
+    private var dragging: N3DSGameViewController.ControlGroup?
+    private var dragStart = N3DSGameViewController.Placement()
+    private var pinching: N3DSGameViewController.ControlGroup?
+    private var pinchStart: CGFloat = 1
+    private var last: N3DSGameViewController.ControlGroup?
+
+    init(owner: N3DSGameViewController) {
+        self.owner = owner
+        super.init(frame: .zero)
+        backgroundColor = UIColor.black.withAlphaComponent(0.3)
+        for group in N3DSGameViewController.ControlGroup.allCases {
+            let outline = CAShapeLayer()
+            outline.fillColor = UIColor.white.withAlphaComponent(0.08).cgColor
+            outline.strokeColor = UIColor.white.withAlphaComponent(0.85).cgColor
+            outline.lineDashPattern = [6, 4]
+            outline.lineWidth = 1.5
+            layer.addSublayer(outline)
+            outlines[group] = outline
+        }
+        let hint = UILabel()
+        hint.text = "Drag to move · pinch to resize"
+        hint.font = .systemFont(ofSize: 13, weight: .medium)
+        hint.textColor = .white
+        [hint, button("Reset", #selector(reset), filled: false), button("Cancel", #selector(cancel), filled: false),
+         button("Done", #selector(done), filled: true)].forEach { bar.addArrangedSubview($0) }
+        bar.axis = .horizontal
+        bar.spacing = 10
+        bar.alignment = .center
+        bar.isLayoutMarginsRelativeArrangement = true
+        bar.layoutMargins = UIEdgeInsets(top: 6, left: 14, bottom: 6, right: 6)
+        bar.backgroundColor = UIColor.black.withAlphaComponent(0.8)
+        bar.layer.cornerRadius = 20
+        addSubview(bar)
+
+        let pan = UIPanGestureRecognizer(target: self, action: #selector(panned(_:)))
+        let pinch = UIPinchGestureRecognizer(target: self, action: #selector(pinched(_:)))
+        pan.delegate = self
+        pinch.delegate = self
+        addGestureRecognizer(pan)
+        addGestureRecognizer(pinch)
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool { true }
+
+    private func button(_ title: String, _ action: Selector, filled: Bool) -> UIButton {
+        var config = filled ? UIButton.Configuration.filled() : UIButton.Configuration.gray()
+        config.title = title
+        config.cornerStyle = .capsule
+        config.buttonSize = .small
+        if filled { config.baseBackgroundColor = Theme.accentUIColor }
+        let button = UIButton(configuration: config)
+        button.addTarget(self, action: action, for: .touchUpInside)
+        return button
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        let size = bar.systemLayoutSizeFitting(UIView.layoutFittingCompressedSize)
+        bar.frame = CGRect(x: bounds.midX - size.width / 2, y: bounds.midY - 20, width: size.width, height: max(size.height, 40))
+        refresh()
+    }
+
+    func refresh() {
+        guard let owner else { return }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        for (group, outline) in outlines {
+            let box = owner.groupFrame(group)
+            outline.path = box.isNull ? nil : UIBezierPath(roundedRect: box.insetBy(dx: -6, dy: -6), cornerRadius: 12).cgPath
+            outline.strokeColor = (group == dragging || group == pinching ? Theme.accentUIColor : UIColor.white.withAlphaComponent(0.85)).cgColor
+        }
+        CATransaction.commit()
+    }
+
+    @objc private func panned(_ recognizer: UIPanGestureRecognizer) {
+        guard let owner else { return }
+        switch recognizer.state {
+        case .began:
+            dragging = owner.group(at: recognizer.location(in: self))
+            last = dragging ?? last
+            if let dragging { dragStart = owner.placement(dragging) }
+        case .changed:
+            guard let dragging, pinching == nil else { return }
+            let move = recognizer.translation(in: self)
+            var placement = dragStart
+            placement.dx += move.x / max(bounds.width, 1)
+            placement.dy += move.y / max(bounds.height, 1)
+            owner.setPlacement(placement, for: dragging)
+        default:
+            dragging = nil
+        }
+        refresh()
+    }
+
+    @objc private func pinched(_ recognizer: UIPinchGestureRecognizer) {
+        guard let owner else { return }
+        switch recognizer.state {
+        case .began:
+            pinching = owner.group(at: recognizer.location(in: self)) ?? last
+            if let pinching { pinchStart = owner.placement(pinching).scale }
+        case .changed:
+            guard let pinching else { return }
+            var placement = owner.placement(pinching)
+            placement.scale = min(max(pinchStart * recognizer.scale, 0.6), 1.8)
+            owner.setPlacement(placement, for: pinching)
+        default:
+            pinching = nil
+        }
+        refresh()
+    }
+
+    @objc private func reset() {
+        owner?.resetPlacements()
+        refresh()
+    }
+
+    @objc private func cancel() { owner?.endEditingControls(save: false) }
+    @objc private func done() { owner?.endEditingControls(save: true) }
 }
