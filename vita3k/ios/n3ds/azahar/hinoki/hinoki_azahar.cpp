@@ -55,7 +55,19 @@ bool (*hinoki_jit_take)(std::size_t, void**, void**) = nullptr;
 void (*hinoki_jit_return)(void*, void*, std::size_t) = nullptr;
 std::size_t (*hinoki_jit_cache_size)(void) = nullptr;
 void* hinoki_vk_get_instance_proc_addr = nullptr;
+double (*hinoki_pace_scale)(void) = nullptr;
 }
+
+namespace {
+// Frame pacing that matches the screen (core/perf_stats.cpp): the 3DS refreshes at
+// 268111856 / 4481136 = 59.83 Hz, a phone at 60 or 120 Hz. Running 0.28% faster gives every refresh
+// a new frame instead of showing one twice every ~6 seconds.
+std::atomic<bool> g_match_display{true};
+double PaceScale() {
+    constexpr double kThreeDSRefresh = 268111856.0 / 4481136.0;
+    return g_match_display.load(std::memory_order_relaxed) ? 60.0 / kThreeDSRefresh : 1.0;
+}
+} // namespace
 
 namespace {
 
@@ -390,6 +402,13 @@ void EmulationThread(std::string path, azh_event_fn events, void* context) {
     send(AZH_EVENT_RUNNING, 0, 0, nullptr);
 
     auto last_perf = std::chrono::steady_clock::now();
+    // Every 10 s the log says where the time went: what the game asks of the emulated CPU, the
+    // 3DS GPU and the host GPU, and the slowest second (FPS) in that window
+    struct PerfWindow {
+        int seconds = 0;
+        double fps = 0, speed = 0, low_fps = 1e9;
+        double svc = 0, ipc = 0, gpu = 0, swap = 0, rest = 0, frame = 0;
+    } window;
     std::chrono::steady_clock::time_point state_waiting_since{};
     Core::System::ResultStatus exit_status = Core::System::ResultStatus::Success;
     while (!g_stop) {
@@ -426,6 +445,27 @@ void EmulationThread(std::string path, azh_event_fn events, void* context) {
             g_fps = stats.game_fps;
             g_speed = stats.emulation_speed * 100.0;
             last_perf = now;
+            window.seconds++;
+            window.fps += stats.game_fps;
+            window.speed += stats.emulation_speed * 100.0;
+            window.low_fps = std::min(window.low_fps, stats.game_fps);
+            window.svc += stats.time_hle_svc;
+            window.ipc += stats.time_hle_ipc;
+            window.gpu += stats.time_gpu;
+            window.swap += stats.time_swap;
+            window.rest += stats.time_remaining;
+            window.frame += stats.time_vblank_interval;
+            if (window.seconds >= 10) {
+                const double n = window.seconds;
+                const auto ms = [&](double total) { return total / n * 1000.0; };
+                LOG_INFO(Frontend,
+                         "Perf: {:.1f} FPS (lowest {:.1f}), speed {:.0f}%, per frame {:.2f} ms: "
+                         "CPU+other {:.2f}, 3DS GPU {:.2f}, present {:.2f}, services {:.2f}+{:.2f}",
+                         window.fps / n, window.low_fps, window.speed / n, ms(window.frame),
+                         ms(window.rest), ms(window.gpu), ms(window.swap), ms(window.svc),
+                         ms(window.ipc));
+                window = PerfWindow{};
+            }
         }
     }
 
@@ -473,6 +513,7 @@ bool azh_init(const char* user_dir, const azh_host* host) {
         hinoki_jit_cache_size = g_host.jit_cache_size;
         hinoki_vk_get_instance_proc_addr = g_host.vk_get_instance_proc_addr;
     }
+    hinoki_pace_scale = &PaceScale;
     if (initialised)
         return true;
     initialised = true;
@@ -486,10 +527,11 @@ bool azh_init(const char* user_dir, const azh_host* host) {
              user_dir ? user_dir : "(default)");
 
     // Phone defaults: Vulkan (MoltenVK), HLE applets (no 3DS system files needed), shaders built
-    // in the background, a PICA shader interpreter (the shader JIT writes code where iOS doesn't
-    // let it)
+    // in the background
     Settings::values.graphics_api = Settings::GraphicsAPI::Vulkan;
-    Settings::values.use_shader_jit = false;
+    // The PICA shader JIT: its code goes into Hinoki's JIT pool (apply.py 2k); a shader it can't
+    // place runs in the interpreter
+    Settings::values.use_shader_jit = true;
     Settings::values.lle_applets = false;
     Settings::values.async_shader_compilation = true;
     Settings::values.use_disk_shader_cache = true;
@@ -758,6 +800,12 @@ void azh_set_setting(const char* key_c, const char* value_c) {
         v.use_skip_duplicate_frames = ToBool(value);
     } else if (key == "turbo_limit") {
         v.turbo_limit = real;
+    } else if (key == "match_display") {
+        g_match_display = ToBool(value);
+        return;
+    } else if (key == "use_shader_jit") {
+        v.use_shader_jit = ToBool(value); // next boot
+        return;
     } else if (key == "delay_game_render_thread_us") {
         v.delay_game_render_thread_us = static_cast<u16>(std::clamp(number, 0, 16000));
     } else {

@@ -18,6 +18,7 @@ set(VITA3K_IOS_SWIFT_SOURCES
 	ios/ui/N3DSSettingsView.swift
 	ios/ui/TouchControls.swift
 	ios/ui/TouchExtras.swift
+	ios/ui/Localization.swift
 	ios/ui/CloudSaves.swift
 	ios/ui/N3DSArt.swift
 	ios/ui/N3DSGameExtras.swift

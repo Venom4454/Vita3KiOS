@@ -360,4 +360,301 @@ edit(TH, """void SetCurrentThreadPriority(ThreadPriority new_priority) {
 """)
 edit(TH, "#include <mach/mach.h>\n", "#include <mach/mach.h>\n#include <pthread.h>\n#include <pthread/qos.h> // HINOKI\n#include <string_view>\n")
 
+# ---- 2j. triangle fans on the GPU ----
+# Metal has no triangle fans, so MoltenVK reports none and every fan draw used to skip the GPU path:
+# the CPU then ran the game's vertex shader for each vertex in the PICA interpreter, the slowest path
+# Azahar has. Draw a fan as a triangle list instead (0,i,i+1), with an index buffer built here.
+VKR = "src/video_core/renderer_vulkan/vk_rasterizer.cpp"
+VKRH = "src/video_core/renderer_vulkan/vk_rasterizer.h"
+edit(VKRH, """    /// Setup index array for AccelerateDrawBatch
+    void SetupIndexArray();
+""", """    /// Setup index array for AccelerateDrawBatch
+    void SetupIndexArray();
+
+    /// HINOKI: a triangle fan as a triangle list (no fans in Metal); returns the index count
+    u32 HinokiSetupFanIndices(bool is_indexed);
+    bool hinoki_fan_as_list = false;
+""")
+edit(VKR, """    pipeline_info.state.rasterization.topology.Assign(regs.pipeline.triangle_topology);
+    if (regs.pipeline.triangle_topology == TriangleTopology::Fan &&
+        !instance.IsTriangleFanSupported()) {
+        LOG_DEBUG(Render_Vulkan,
+                  "Skipping accelerated draw with unsupported triangle fan topology");
+        return false;
+    }
+""", """    pipeline_info.state.rasterization.topology.Assign(regs.pipeline.triangle_topology);
+    // HINOKI: no fans in Metal: the fan is drawn as a triangle list (HinokiSetupFanIndices)
+    hinoki_fan_as_list = false;
+    if (regs.pipeline.triangle_topology == TriangleTopology::Fan &&
+        !instance.IsTriangleFanSupported()) {
+        if (regs.pipeline.num_vertices < 3) {
+            return true; // not a single triangle
+        }
+        hinoki_fan_as_list = true;
+        pipeline_info.state.rasterization.topology.Assign(TriangleTopology::List);
+    }
+""")
+edit(VKR, """bool RasterizerVulkan::AccelerateDrawBatchInternal(bool is_indexed) {
+    if (is_indexed) {
+        SetupIndexArray();
+    }
+""", """bool RasterizerVulkan::AccelerateDrawBatchInternal(bool is_indexed) {
+    // HINOKI: a fan becomes an indexed triangle list
+    u32 hinoki_count = regs.pipeline.num_vertices;
+    s32 hinoki_vertex_offset = -static_cast<s32>(vertex_info.vs_input_index_min);
+    if (hinoki_fan_as_list) {
+        hinoki_count = HinokiSetupFanIndices(is_indexed);
+        if (!is_indexed) {
+            hinoki_vertex_offset = 0; // the vertex buffer starts at the fan's first vertex
+        }
+        is_indexed = true;
+    } else if (is_indexed) {
+        SetupIndexArray();
+    }
+""")
+edit(VKR, """    const DrawParams params = {
+        .vertex_count = regs.pipeline.num_vertices,
+        .vertex_offset = -static_cast<s32>(vertex_info.vs_input_index_min),""", """    const DrawParams params = {
+        .vertex_count = hinoki_count, // HINOKI
+        .vertex_offset = hinoki_vertex_offset,""")
+edit(VKR, """void RasterizerVulkan::SetupIndexArray() {
+    const bool index_u8""", """u32 RasterizerVulkan::HinokiSetupFanIndices(bool is_indexed) {
+    // HINOKI: fan (v0, v1, ..., vn-1) -> list (v0,v1,v2) (v0,v2,v3) ... in 32-bit indices
+    const u32 count = regs.pipeline.num_vertices;
+    const u32 triangles = count - 2;
+    const u32 out_count = triangles * 3;
+    const u32 out_size = out_count * sizeof(u32);
+
+    const u8* index_data = nullptr;
+    const bool index_u16 = regs.pipeline.index_array.format != 0;
+    if (is_indexed) {
+        index_data =
+            memory.GetPhysicalPointer(regs.pipeline.vertex_attributes.GetPhysicalBaseAddress() +
+                                      regs.pipeline.index_array.offset);
+    }
+    const auto source = [&](u32 i) -> u32 {
+        if (!index_data) {
+            return i;
+        }
+        if (index_u16) {
+            u16 value;
+            std::memcpy(&value, index_data + i * 2, sizeof(value));
+            return value;
+        }
+        return index_data[i];
+    };
+
+    auto [index_ptr, index_offset, _] = stream_buffer.Map(out_size, 4);
+    u32* out = reinterpret_cast<u32*>(index_ptr);
+    const u32 first = source(0);
+    for (u32 i = 0; i < triangles; i++) {
+        out[i * 3 + 0] = first;
+        out[i * 3 + 1] = source(i + 1);
+        out[i * 3 + 2] = source(i + 2);
+    }
+    stream_buffer.Commit(out_size);
+
+    scheduler.Record([this, index_offset = index_offset](vk::CommandBuffer cmdbuf) {
+        cmdbuf.bindIndexBuffer(stream_buffer.Handle(), index_offset, vk::IndexType::eUint32);
+    });
+    return out_count;
+}
+
+void RasterizerVulkan::SetupIndexArray() {
+    const bool index_u8""")
+
+# ---- 2k. PICA shader JIT on iOS ----
+# Vertex shaders the GPU can't run (geometry shader draws, immediate-mode draws) run on the CPU. On iOS
+# that was always the interpreter: the shader JIT wanted memory that is writable and executable at
+# once. Its code now goes into Hinoki's JIT pool (read-execute view plus a writable alias), many
+# shaders to a region; if the pool can't lend any, that one shader falls back to the interpreter.
+SJA = "src/video_core/shader/shader_jit_a64_compiler.cpp"
+SJAH = "src/video_core/shader/shader_jit_a64_compiler.h"
+edit(SJAH, """                reinterpret_cast<const std::byte*>(code_mem->ptr()) +
+                    instruction_labels[offset].offset());""", """                hinoki_exec_base + instruction_labels[offset].offset()); // HINOKI""")
+edit(SJAH, """    std::vector<u32> code_vec;
+    std::unique_ptr<oaknut::CodeBlock> code_mem;
+""", """    std::vector<u32> code_vec;
+    std::unique_ptr<oaknut::CodeBlock> code_mem;
+    // HINOKI: where the compiled code runs from (Hinoki's JIT pool on iOS, else code_mem)
+    const std::byte* hinoki_exec_base = nullptr;
+    std::shared_ptr<void> hinoki_pool_ref;
+""")
+edit(SJAH, "#include <optional>\n", "#include <memory> // HINOKI\n#include <optional>\n")
+edit(SJA, "\nnamespace Pica::Shader {\n", r"""
+// HINOKI: code memory lent by Hinoki (set by azh_init; null elsewhere)
+extern "C" {
+extern bool (*hinoki_jit_take)(std::size_t, void**, void**) __attribute__((weak));
+extern void (*hinoki_jit_return)(void*, void*, std::size_t) __attribute__((weak));
+}
+#if defined(__APPLE__)
+#include <libkern/OSCacheControl.h>
+#endif
+#include <mutex>
+
+namespace {
+// HINOKI: many compiled shaders share one 4 MiB region of Hinoki's JIT pool; the regions go back
+// when the last shader using them is gone (the game ended)
+struct HinokiShaderPool {
+    struct Chunk {
+        std::byte* rx;
+        std::byte* rw;
+        std::size_t size;
+        std::size_t used;
+    };
+    std::mutex mutex;
+    std::vector<Chunk> chunks;
+    std::size_t live = 0;
+
+    static bool Available() {
+        return &hinoki_jit_take != nullptr && hinoki_jit_take != nullptr;
+    }
+
+    bool Take(std::size_t size, std::byte** rx, std::byte** rw) {
+        std::scoped_lock lock{mutex};
+        size = (size + 63) & ~std::size_t{63};
+        for (auto& chunk : chunks) {
+            if (chunk.size - chunk.used >= size) {
+                *rx = chunk.rx + chunk.used;
+                *rw = chunk.rw + chunk.used;
+                chunk.used += size;
+                live++;
+                return true;
+            }
+        }
+        const std::size_t chunk_size = std::max<std::size_t>(size, 4 * 1024 * 1024);
+        void* x = nullptr;
+        void* w = nullptr;
+        if (!hinoki_jit_take(chunk_size, &x, &w)) {
+            return false;
+        }
+        chunks.push_back({static_cast<std::byte*>(x), static_cast<std::byte*>(w), chunk_size, size});
+        *rx = chunks.back().rx;
+        *rw = chunks.back().rw;
+        live++;
+        return true;
+    }
+
+    void Release() {
+        std::scoped_lock lock{mutex};
+        if (live == 0 || --live != 0) {
+            return;
+        }
+        for (const auto& chunk : chunks) {
+            if (&hinoki_jit_return != nullptr && hinoki_jit_return != nullptr) {
+                hinoki_jit_return(chunk.rx, chunk.rw, chunk.size);
+            }
+        }
+        chunks.clear();
+    }
+};
+
+HinokiShaderPool& GetHinokiShaderPool() {
+    static HinokiShaderPool pool;
+    return pool;
+}
+} // namespace
+
+namespace Pica::Shader {
+""")
+edit(SJA, """    code_mem = std::make_unique<oaknut::CodeBlock>(code_size);
+    code_mem->unprotect();
+
+    program = reinterpret_cast<CompiledShader*>(reinterpret_cast<std::byte*>(code_mem->ptr()) +
+                                                program_offset);
+
+    // Copy to executable memory
+    std::memcpy(code_mem->ptr(), code_vec.data(), code_vec.size() * sizeof(u32));
+
+    // Memory is ready to execute
+    code_mem->protect();
+    code_mem->invalidate_all();
+""", """    std::byte* rx = nullptr;
+    std::byte* rw = nullptr;
+    if (HinokiShaderPool::Available() && GetHinokiShaderPool().Take(code_size, &rx, &rw)) {
+        // HINOKI: into Hinoki's JIT pool (write through the alias, run from the read-execute view)
+        hinoki_pool_ref = std::shared_ptr<void>(reinterpret_cast<void*>(1),
+                                                [](void*) { GetHinokiShaderPool().Release(); });
+        std::memcpy(rw, code_vec.data(), code_size);
+#if defined(__APPLE__)
+        sys_icache_invalidate(rx, code_size);
+#endif
+        hinoki_exec_base = rx;
+        program = reinterpret_cast<CompiledShader*>(rx + program_offset);
+    } else {
+    code_mem = std::make_unique<oaknut::CodeBlock>(code_size);
+    code_mem->unprotect();
+
+    program = reinterpret_cast<CompiledShader*>(reinterpret_cast<std::byte*>(code_mem->ptr()) +
+                                                program_offset);
+
+    // Copy to executable memory (HINOKI: through the writable view)
+    std::memcpy(code_mem->wptr(), code_vec.data(), code_vec.size() * sizeof(u32));
+
+    // Memory is ready to execute
+    code_mem->protect();
+    code_mem->invalidate_all();
+    hinoki_exec_base = reinterpret_cast<const std::byte*>(code_mem->ptr()); // HINOKI
+    }
+""")
+SJ = "src/video_core/shader/shader_jit.cpp"
+edit(SJ, '#include "video_core/shader/shader_jit.h"\n', '#include "video_core/shader/shader_jit.h"\n#include "video_core/shader/shader_interpreter.h" // HINOKI\n')
+edit(SJ, """        auto shader = std::make_unique<JitShader>();
+        shader->Compile(&setup.GetProgramCode(), &setup.GetSwizzleData());
+        setup.cached_shader = shader.get();
+        cache.emplace_hint(iter, cache_key, std::move(shader));""", """        auto shader = std::make_unique<JitShader>();
+        try {
+            shader->Compile(&setup.GetProgramCode(), &setup.GetSwizzleData());
+        } catch (const std::bad_alloc&) {
+            // HINOKI: no code memory for it: this shader runs in the interpreter
+            LOG_WARNING(HW_GPU, "Shader JIT: no code memory, using the interpreter for a shader");
+            shader.reset();
+        }
+        setup.cached_shader = shader.get();
+        cache.emplace_hint(iter, cache_key, std::move(shader));""")
+edit(SJ, """    ASSERT(setup.cached_shader != nullptr);
+
+    MICROPROFILE_SCOPE(GPU_Shader);
+""", """    if (setup.cached_shader == nullptr) { // HINOKI: compiled without code memory
+        static const InterpreterEngine interpreter;
+        interpreter.Run(setup, state);
+        return;
+    }
+
+    MICROPROFILE_SCOPE(GPU_Shader);
+""")
+
+# ---- 2l. frame pacing that matches the screen ----
+# The 3DS draws 59.83 frames a second and the phone's screen refreshes 60 (or 120) times. The 0.3%
+# difference made a frame show twice every ~6 seconds: a small, regular hitch. Running 0.28% faster
+# (inaudible; audio stretching absorbs it) gives every refresh a new frame. Hinoki turns it on and off.
+PS = "src/core/perf_stats.cpp"
+edit(PS, "\nnamespace Core {\n", """
+// HINOKI: speed factor that matches the screen's refresh (set by Hinoki; null elsewhere)
+extern "C" double (*hinoki_pace_scale)(void) __attribute__((weak));
+
+namespace Core {
+""")
+edit(PS, """    double sleep_scale = Settings::GetFrameLimit() / 100.0;
+""", """    double sleep_scale = Settings::GetFrameLimit() / 100.0;
+    if (Settings::GetFrameLimit() == 100 && &hinoki_pace_scale != nullptr && hinoki_pace_scale) {
+        sleep_scale *= hinoki_pace_scale(); // HINOKI
+    }
+""")
+
+# ---- 2m. MoltenVK settings are 32-bit booleans ----
+# The settings were passed as pointers to C++ bools (1 byte) where MoltenVK reads 4: the other three
+# bytes were whatever followed on the stack
+VKP2 = "src/video_core/renderer_vulkan/vk_platform.cpp"
+edit(VKP2, """    const auto synchronous_queue_submits = Settings::values.async_presentation.GetValue();
+    // If the device is lost, make an attempt to resume if possible to avoid crashes.
+    constexpr auto resume_lost_device = true;
+    // Maximize concurrency to improve shader compilation performance.
+    constexpr auto maximize_concurrent_compilation = true;""", """    const VkBool32 synchronous_queue_submits =
+        Settings::values.async_presentation.GetValue() ? VK_TRUE : VK_FALSE; // HINOKI: VkBool32
+    // If the device is lost, make an attempt to resume if possible to avoid crashes.
+    const VkBool32 resume_lost_device = VK_TRUE;
+    // Maximize concurrency to improve shader compilation performance.
+    const VkBool32 maximize_concurrent_compilation = VK_TRUE;""")
+
 print("Azahar prepared for Hinoki")

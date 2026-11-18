@@ -26,6 +26,8 @@
 #include <touch/functions.h>
 #include <util/log.h>
 
+#include <string_view>
+
 void update_keyboard_state(EmuEnvState &emuenv, const std::function<bool(input::PhysicalKeyCode)> &key_held) {
     const auto &cfg = emuenv.cfg;
     const auto is_pressed = [&](input::PhysicalKeyCode primary, input::PhysicalKeyCode alternate) {
@@ -342,7 +344,23 @@ static void retrieve_ctrl_data(EmuEnvState &emuenv, int port, bool is_v2, bool n
             apply_keyboard(&buttons, axes.data(), is_v2, emuenv);
         }
         for (const auto &[_, controller] : state.controllers) {
+#if defined(VITA3K_PLATFORM_IOS)
+            // The on-screen controls are always player 1. They're a gamepad to SDL, so with a
+            // real controller connected first they used to land on port 2 in PS TV mode, where
+            // the game never reads them: the touch controls stopped working entirely.
+            // Real controllers keep their order after it, so one controller plus the touch
+            // controls is still player 1 rather than player 2.
+            const auto is_touch = [](const Controller &c) { return c.name && std::string_view(c.name) == "Vita3K Touch Controls"; };
+            int touch_port = -1;
+            for (const auto &[__, other] : state.controllers)
+                if (is_touch(other))
+                    touch_port = other.port;
+            const bool touch = is_touch(controller);
+            const int real_port = controller.port - ((touch_port >= 0 && controller.port > touch_port) ? 1 : 0);
+            if (touch ? port == 1 : real_port + 1 == port) {
+#else
             if (controller.port + 1 == port) {
+#endif
                 // sceCtrl ports are 1-based and SDL_GameController index is 0-based. Need to convert.
                 apply_controller(emuenv, &buttons, axes.data(), controller.controller.get(), is_v2);
             }

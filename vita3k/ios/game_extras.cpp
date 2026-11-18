@@ -110,6 +110,7 @@ void session_started(EmuEnvState &emuenv) {
     rear_touch = false;
     rear_touch_applied = false;
     pstv_mode = emuenv.cfg.current_config.pstv_mode;
+    LOG_INFO("PS TV mode: {}", pstv_mode ? "on (L2, R2, L3 and R3 on screen)" : "off");
     set_rear_touchscreen(emuenv.touch, false);
     frames_since_rotation_check = 0;
     last_rotation = -2;

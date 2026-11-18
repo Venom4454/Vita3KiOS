@@ -381,8 +381,26 @@ bool has_custom_config(const fs::path &config_path, const std::string &app_path)
 
 void set_current_config(Config &cfg, const fs::path &config_path, const std::string &app_path) {
     copy_global_to_current(cfg.current_config, cfg);
-    if (!app_path.empty())
+    if (!app_path.empty()) {
         load_custom_config(cfg.current_config, config_path, app_path);
+#if defined(VITA3K_PLATFORM_IOS)
+        // Hinoki's per-game settings only cover graphics and CPU. A game's settings file also
+        // stores the system and audio settings as they were when it was written, which then
+        // froze them for that game: turning PS TV mode (or the language, enter button, volume)
+        // on in Settings did nothing for any game with its own settings. Those follow Settings.
+        auto &cc = cfg.current_config;
+        cc.pstv_mode = cfg.pstv_mode;
+        cc.sys_button = cfg.sys_button;
+        cc.sys_lang = cfg.sys_lang;
+        cc.sys_date_format = cfg.sys_date_format;
+        cc.sys_time_format = cfg.sys_time_format;
+        cc.ime_langs = cfg.ime_langs;
+        cc.psn_signed_in = cfg.psn_signed_in;
+        cc.audio_backend = cfg.audio_backend;
+        cc.audio_volume = cfg.audio_volume;
+        cc.ngs_enable = cfg.ngs_enable;
+#endif
+    }
 }
 
 void copy_current_config_to_global(Config &cfg) {

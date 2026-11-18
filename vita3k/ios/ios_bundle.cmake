@@ -23,6 +23,8 @@ add_custom_command(
 	COMMAND ${CMAKE_COMMAND} -E copy_directory "${CMAKE_CURRENT_SOURCE_DIR}/../data" "$<TARGET_FILE_DIR:vita3k>/data"
 	COMMAND ${CMAKE_COMMAND} -E copy_directory "${CMAKE_CURRENT_SOURCE_DIR}/shaders-builtin" "$<TARGET_FILE_DIR:vita3k>/shaders-builtin"
 	COMMAND ${CMAKE_COMMAND} -E copy_directory "${CMAKE_CURRENT_SOURCE_DIR}/icons" "$<TARGET_FILE_DIR:vita3k>/icons"
+	# The menus in the player's language: es.lproj, fr.lproj, ... at the root of the bundle
+	COMMAND ${CMAKE_COMMAND} -E copy_directory "${CMAKE_CURRENT_SOURCE_DIR}/ios/localization" "$<TARGET_FILE_DIR:vita3k>"
 	COMMENT "Copying Vita3K resources into the iOS app bundle")
 
 # RAM helpers: V3KRamHelper.appex, an app extension that runs as separate processes (each with its own

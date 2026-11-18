@@ -32,7 +32,7 @@ enum N3DSSettings {
         "use_vsync": "1", "is_new_3ds": "1", "region_value": "-1", "cpu_clock_percentage": "100",
         "use_cpu_jit": "1", "volume": "1", "filter_mode": "1", "texture_filter": "0",
         "enable_audio_stretching": "1", "shaders_accurate_mul": "0", "custom_textures": "0",
-        "async_presentation": "1", "disable_right_eye_render": "1",
+        "async_presentation": "1", "disable_right_eye_render": "1", "match_display": "1", "use_shader_jit": "1",
     ]
 
     static func value(_ key: String) -> String {
@@ -249,6 +249,9 @@ final class N3DSPadButton: UIView {
         update(false)
     }
 
+    /// Drawn pressed or not by N3DSFacePad (which takes the touches for A B X Y)
+    func showPressed(_ pressed: Bool) { update(pressed) }
+
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
         if touchCount == 0 {
             changed?(key, true)
@@ -269,6 +272,101 @@ final class N3DSPadButton: UIView {
 
     override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
         touchesEnded(touches, with: event)
+    }
+}
+
+/// A B X Y as one touch area, the way a thumb plays them: slide from one button to the next without
+/// lifting, and a thumb between two neighbours presses both (A held, roll up onto X: A and X). Every
+/// finger on it counts, so a second finger adds its buttons.
+final class N3DSFacePad: UIView {
+    /// The four buttons it draws through (positions come from their frames)
+    var buttons: [N3DSPadButton] = []
+    var changed: ((N3DSKey, Bool) -> Void)?
+    private var touchKeys: [ObjectIdentifier: Set<N3DSKey>] = [:]
+    private var shown: Set<N3DSKey> = []
+    private let feedback = UISelectionFeedbackGenerator()
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        isMultipleTouchEnabled = true
+        backgroundColor = .clear
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    /// The buttons under a point: the nearest one, plus its neighbour when the point sits between
+    /// the two (within about a third of a button of the line that splits them)
+    private func keys(at point: CGPoint, previous: Set<N3DSKey>) -> Set<N3DSKey> {
+        let visible = buttons.filter { !$0.isHidden }
+        guard !visible.isEmpty, let superview else { return [] }
+        let p = convert(point, to: superview)
+        let centers = visible.map { ($0.key, CGPoint(x: $0.frame.midX, y: $0.frame.midY), $0.frame.width) }
+        let ranked = centers.map { (key: $0.0, distance: hypot(p.x - $0.1.x, p.y - $0.1.y), size: $0.2) }
+            .sorted { $0.distance < $1.distance }
+        guard let first = ranked.first else { return [] }
+        // Far outside the cluster: nothing (the area is a little larger than the buttons)
+        if first.distance > first.size * 1.15 { return [] }
+        var result: Set<N3DSKey> = [first.key]
+        if ranked.count > 1 {
+            let second = ranked[1]
+            // neighbours only (A-X, A-B, B-Y, Y-X), not opposites (A-Y, X-B)
+            let opposite: Set<Set<N3DSKey>> = [[.a, .y], [.x, .b]]
+            if !opposite.contains([first.key, second.key]) && second.distance - first.distance < first.size * 0.32 {
+                result.insert(second.key)
+            }
+        }
+        // In the gap at the very middle, keep what this finger already had
+        let middle = centers.reduce(CGPoint.zero) { CGPoint(x: $0.x + $1.1.x / CGFloat(centers.count), y: $0.y + $1.1.y / CGFloat(centers.count)) }
+        if hypot(p.x - middle.x, p.y - middle.y) < first.size * 0.3, !previous.isEmpty { return previous }
+        return result
+    }
+
+    private func refresh() {
+        let all = touchKeys.values.reduce(into: Set<N3DSKey>()) { $0.formUnion($1) }
+        guard all != shown else { return }
+        let added = all.subtracting(shown)
+        for key in shown.subtracting(all) { changed?(key, false) }
+        for key in added { changed?(key, true) }
+        for button in buttons { button.showPressed(all.contains(button.key)) }
+        if !added.isEmpty, N3DSSettings.haptics { feedback.selectionChanged() }
+        shown = all
+    }
+
+    private func track(_ touches: Set<UITouch>) {
+        for touch in touches {
+            let id = ObjectIdentifier(touch)
+            touchKeys[id] = keys(at: touch.location(in: self), previous: touchKeys[id] ?? [])
+        }
+        refresh()
+    }
+
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
+        feedback.prepare()
+        track(touches)
+    }
+
+    override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) { track(touches) }
+
+    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
+        for touch in touches { touchKeys[ObjectIdentifier(touch)] = nil }
+        refresh()
+    }
+
+    override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
+        touchesEnded(touches, with: event)
+    }
+
+    func releaseIfHeld() {
+        touchKeys.removeAll()
+        refresh()
+    }
+
+    /// The touch area: the four buttons and a margin around them
+    func fit() {
+        let visible = buttons.filter { !$0.isHidden }
+        let box = visible.map(\.frame).reduce(CGRect.null) { $0.union($1) }
+        guard !box.isNull, let size = visible.first?.frame.width else { return }
+        frame = box.insetBy(dx: -size * 0.3, dy: -size * 0.3)
     }
 }
 
@@ -587,6 +685,7 @@ final class N3DSGameViewController: UIViewController {
     private let fpsLabel = UILabel()
 
     private var dpad = N3DSDpad()
+    private let facePad = N3DSFacePad()
     private var circle = N3DSStick()
     private var cstick = N3DSStick()
     private var buttons: [N3DSPadButton] = []
@@ -848,6 +947,15 @@ final class N3DSGameViewController: UIViewController {
             }
             overlay.addSubview(button)
         }
+        // A B X Y take their touches through one area (slide and roll between them)
+        let face = [N3DSKey.a, .b, .x, .y].compactMap { button($0) }
+        face.forEach { $0.isUserInteractionEnabled = false }
+        facePad.buttons = face
+        facePad.changed = { [weak self] key, pressed in
+            guard let self else { return }
+            if pressed { touchMask |= key.rawValue } else { touchMask &= ~key.rawValue }
+        }
+        overlay.addSubview(facePad)
         dpad.changed = { [weak self] mask in self?.dpadMask = mask }
         circle.changed = { [weak self] x, y in self?.circleStick = CGPoint(x: x, y: y) }
         cstick.changed = { [weak self] x, y in self?.cStickTouch = CGPoint(x: x, y: y) }
@@ -950,6 +1058,7 @@ final class N3DSGameViewController: UIViewController {
 
         circleFrame = applyPlacements(circleFrame: circleFrame)
         circleFrameNow = circleFrame
+        facePad.fit()
 
         // Floating Circle Pad: the pad comes to the thumb anywhere around where it's drawn (never over
         // the touch screen)
@@ -1199,15 +1308,15 @@ final class N3DSGameViewController: UIViewController {
         view.setNeedsLayout()
         view.layoutIfNeeded()
         closeMenu()
-        if save { showToast("Controls saved for this layout") }
+        if save { showToast(L("Controls saved for this layout")) }
     }
 
     /// The screen layouts, with the current one ticked
     private func showLayoutPicker() {
-        let sheet = UIAlertController(title: "Screen layout", message: isPortrait ? "Upright, the screens are stacked above the controls. These are for holding the phone sideways." : nil, preferredStyle: .actionSheet)
+        let sheet = UIAlertController(title: L("Screen layout"), message: isPortrait ? L("Upright, the screens are stacked above the controls. These are for holding the phone sideways.") : nil, preferredStyle: .actionSheet)
         for (value, name) in N3DSSettings.landscapeLayouts {
             let current = N3DSSettings.landscapeLayout == value
-            sheet.addAction(UIAlertAction(title: (current ? "✓ " : "") + name, style: .default) { [weak self] _ in
+            sheet.addAction(UIAlertAction(title: (current ? "✓ " : "") + L(name), style: .default) { [weak self] _ in
                 guard let self else { return }
                 N3DSSettings.landscapeLayout = value
                 if !N3DSSettings.hinokiLayouts.contains(value) {
@@ -1219,7 +1328,7 @@ final class N3DSGameViewController: UIViewController {
                 closeMenu()
             })
         }
-        sheet.addAction(UIAlertAction(title: "Back", style: .cancel) { [weak self] _ in
+        sheet.addAction(UIAlertAction(title: L("Back"), style: .cancel) { [weak self] _ in
             self?.menuOpen = false
             self?.showMenu()
         })
@@ -1271,6 +1380,7 @@ final class N3DSGameViewController: UIViewController {
 
     private func releaseTouchControls() {
         buttons.forEach { $0.releaseIfHeld() }
+        facePad.releaseIfHeld()
         dpad.releaseIfHeld()
         circle.releaseIfHeld()
         cstick.releaseIfHeld()
@@ -1388,7 +1498,7 @@ final class N3DSGameViewController: UIViewController {
         lastLayoutSent = ""
         view.setNeedsLayout()
         view.layoutIfNeeded()
-        showToast(N3DSSettings.landscapeLayouts.first { $0.0 == next }?.1 ?? "")
+        showToast(L(N3DSSettings.landscapeLayouts.first { $0.0 == next }?.1 ?? ""))
     }
 
     /// Hot phone: 1x resolution until it cools down (Settings › 3DS › Cool down when hot)
@@ -1403,7 +1513,7 @@ final class N3DSGameViewController: UIViewController {
         if hot && !cooledDown && chosen != "1" {
             cooledDown = true
             v3k_n3ds_set_setting("resolution_factor", "1")
-            showToast("The phone is hot: lower resolution until it cools down")
+            showToast(L("The phone is hot: lower resolution until it cools down"))
         } else if !hot && cooledDown && ProcessInfo.processInfo.thermalState == .nominal {
             cooledDown = false
             v3k_n3ds_set_setting("resolution_factor", chosen)
@@ -1438,7 +1548,7 @@ final class N3DSGameViewController: UIViewController {
         }, context)
         if !ok {
             Unmanaged<N3DSGameViewController>.fromOpaque(context).release()
-            finish(message: "The game could not start.")
+            finish(message: L("The game could not start."))
             return
         }
         let link = CADisplayLink(target: self, selector: #selector(tick))
@@ -1455,10 +1565,10 @@ final class N3DSGameViewController: UIViewController {
             loadingLabel.text = b > 0 && b < 100 ? "\(stage)… \(b)%" : "\(stage)…"
         case 2:
             running = true
-            if !UserDefaults.standard.bool(forKey: "n3ds.controlsTipShown") {
-                UserDefaults.standard.set(true, forKey: "n3ds.controlsTipShown")
+            if !UserDefaults.standard.bool(forKey: "n3ds.controlsTipShown2") {
+                UserDefaults.standard.set(true, forKey: "n3ds.controlsTipShown2")
                 DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
-                    self?.showToast("Tip: ☰ › Edit controls moves and resizes the buttons; ☰ › Screen layout changes the screens")
+                    self?.showToast(L("Tip: slide your thumb between A B X Y; between two of them presses both. ☰ › Edit controls moves and resizes"))
                 }
             }
             UIView.animate(withDuration: 0.25) {
@@ -1523,7 +1633,7 @@ final class N3DSGameViewController: UIViewController {
             end()
             if let message, let presenter = N3DSLauncher.topController() {
                 let alert = UIAlertController(title: title, message: message, preferredStyle: .alert)
-                alert.addAction(UIAlertAction(title: "OK", style: .default))
+                alert.addAction(UIAlertAction(title: L("OK"), style: .default))
                 presenter.present(alert, animated: true)
             }
         }
@@ -1555,48 +1665,48 @@ final class N3DSGameViewController: UIViewController {
         menuOpen = true
         releaseTouchControls()
         if running { v3k_n3ds_set_paused(true) }
-        let sheet = UIAlertController(title: app.title, message: "Paused", preferredStyle: .actionSheet)
-        sheet.addAction(UIAlertAction(title: "Resume", style: .cancel) { [weak self] _ in self?.closeMenu() })
+        let sheet = UIAlertController(title: app.title, message: L("Paused"), preferredStyle: .actionSheet)
+        sheet.addAction(UIAlertAction(title: L("Resume"), style: .cancel) { [weak self] _ in self?.closeMenu() })
         if running {
-            sheet.addAction(UIAlertAction(title: "Quick save", style: .default) { [weak self] _ in
+            sheet.addAction(UIAlertAction(title: L("Quick save"), style: .default) { [weak self] _ in
                 _ = v3k_n3ds_save_state(0)
                 self?.closeMenu()
             })
             let quick = saveStates().first { $0.slot == 0 }
-            let quickLoad = UIAlertAction(title: "Quick load", style: .default) { [weak self] _ in
+            let quickLoad = UIAlertAction(title: L("Quick load"), style: .default) { [weak self] _ in
                 _ = v3k_n3ds_load_state(0)
                 self?.closeMenu()
             }
             quickLoad.isEnabled = quick != nil
             sheet.addAction(quickLoad)
-            sheet.addAction(UIAlertAction(title: "Save state…", style: .default) { [weak self] _ in self?.showStates(saving: true) })
-            sheet.addAction(UIAlertAction(title: "Load state…", style: .default) { [weak self] _ in self?.showStates(saving: false) })
-            sheet.addAction(UIAlertAction(title: fastForward ? "Normal speed" : "Fast forward", style: .default) { [weak self] _ in
+            sheet.addAction(UIAlertAction(title: L("Save state…"), style: .default) { [weak self] _ in self?.showStates(saving: true) })
+            sheet.addAction(UIAlertAction(title: L("Load state…"), style: .default) { [weak self] _ in self?.showStates(saving: false) })
+            sheet.addAction(UIAlertAction(title: fastForward ? L("Normal speed") : L("Fast forward"), style: .default) { [weak self] _ in
                 self?.closeMenu()
                 self?.toggleFastForward()
             })
         }
-        sheet.addAction(UIAlertAction(title: "Swap screens", style: .default) { [weak self] _ in
+        sheet.addAction(UIAlertAction(title: L("Swap screens"), style: .default) { [weak self] _ in
             self?.swapScreens()
             self?.closeMenu()
         })
-        sheet.addAction(UIAlertAction(title: "Screen layout…", style: .default) { [weak self] _ in self?.showLayoutPicker() })
-        sheet.addAction(UIAlertAction(title: "Edit controls (move and resize)", style: .default) { [weak self] _ in
+        sheet.addAction(UIAlertAction(title: L("Screen layout…"), style: .default) { [weak self] _ in self?.showLayoutPicker() })
+        sheet.addAction(UIAlertAction(title: L("Edit controls (move and resize)"), style: .default) { [weak self] _ in
             self?.menuOpen = false
             self?.beginEditingControls()
         })
-        sheet.addAction(UIAlertAction(title: controlsHidden ? "Show touch controls" : "Hide touch controls", style: .default) { [weak self] _ in
+        sheet.addAction(UIAlertAction(title: controlsHidden ? L("Show touch controls") : L("Hide touch controls"), style: .default) { [weak self] _ in
             guard let self else { return }
             setControlsHidden(!controlsHidden)
             closeMenu()
         })
-        sheet.addAction(UIAlertAction(title: "HOME Menu button", style: .default) { [weak self] _ in
+        sheet.addAction(UIAlertAction(title: L("HOME Menu button"), style: .default) { [weak self] _ in
             guard let self else { return }
             closeMenu()
             touchMask |= N3DSKey.home.rawValue
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { self.touchMask &= ~N3DSKey.home.rawValue }
         })
-        sheet.addAction(UIAlertAction(title: "Quit game", style: .destructive) { [weak self] _ in
+        sheet.addAction(UIAlertAction(title: L("Quit game"), style: .destructive) { [weak self] _ in
             self?.menuOpen = false
             self?.quit()
         })
@@ -1629,7 +1739,7 @@ final class N3DSGameViewController: UIViewController {
         let formatter = DateFormatter()
         formatter.dateStyle = .medium
         formatter.timeStyle = .short
-        let sheet = UIAlertController(title: saving ? "Save state" : "Load state",
+        let sheet = UIAlertController(title: saving ? L("Save state") : L("Load state"),
                                       message: saving ? "Saving over a slot replaces it." : "Unsaved progress since then is lost.", preferredStyle: .actionSheet)
         for slot in 1...8 {
             let state = states.first { $0.slot == slot }
@@ -1647,7 +1757,7 @@ final class N3DSGameViewController: UIViewController {
             action.isEnabled = saving || (state?.ok ?? false)
             sheet.addAction(action)
         }
-        sheet.addAction(UIAlertAction(title: "Back", style: .cancel) { [weak self] _ in
+        sheet.addAction(UIAlertAction(title: L("Back"), style: .cancel) { [weak self] _ in
             self?.menuOpen = false
             self?.showMenu()
         })

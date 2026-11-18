@@ -20,7 +20,7 @@ struct SettingsView: View {
             List {
                 if search.isEmpty {
                     ForEach(SettingsPage.groups, id: \.title) { group in
-                        Section(group.title) {
+                        Section(L(group.title)) {
                             ForEach(group.pages) { page in row(page) }
                         }
                     }
@@ -63,8 +63,8 @@ struct SettingsView: View {
                     .frame(width: 30, height: 30)
                     .background(RoundedRectangle(cornerRadius: 7, style: .continuous).fill(page.color.gradient))
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(page.title)
-                    Text(subtitle(page)).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                    Text(L(page.title))
+                    Text(L(subtitle(page))).font(.caption).foregroundStyle(.secondary).lineLimit(2)
                 }
             }
             .padding(.vertical, 2)
@@ -98,7 +98,7 @@ struct SettingsPage: Identifiable {
 
     func matches(_ text: String) -> Bool {
         let words = text.lowercased().split(separator: " ")
-        let haystack = (title + " " + subtitle + " " + keywords).lowercased()
+        let haystack = (title + " " + subtitle + " " + L(title) + " " + L(subtitle) + " " + keywords).lowercased()
         return words.allSatisfy { haystack.contains($0) }
     }
 
@@ -198,7 +198,7 @@ struct SettingsForm<Content: View>: View {
 
     var body: some View {
         Form { content }
-            .navigationTitle(title)
+            .navigationTitle(L(title))
             .navigationBarTitleDisplayMode(.inline)
             .alert(model.lastMessage ?? "", isPresented: Binding(get: { model.lastMessage != nil }, set: { if !$0 { model.lastMessage = nil } })) {
                 Button("OK", role: .cancel) { model.lastMessage = nil }
@@ -1247,7 +1247,7 @@ struct PerformanceOverlaySettings: View {
 @ViewBuilder
 func described(_ title: String, _ detail: String) -> some View {
     VStack(alignment: .leading, spacing: 2) {
-        Text(title)
-        Text(detail).font(.caption).foregroundStyle(.secondary)
+        Text(L(title))
+        Text(L(detail)).font(.caption).foregroundStyle(.secondary)
     }
 }

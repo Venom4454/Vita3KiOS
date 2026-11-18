@@ -345,6 +345,65 @@ int install_pkgs_in_zip(EmuEnvState &emuenv, const fs::path &zip_path, v3k_progr
     return installed;
 }
 
+// 3DS games, updates and DLC packed in a zip (a .3ds, .cci or .cia inside it, no PS Vita game next to
+// them): unpacked one at a time next to the cache and imported like loose files. Games first, then
+// updates and DLC. Returns how many were imported; -1 when the zip holds no 3DS files.
+int install_3ds_in_zip(EmuEnvState &emuenv, const fs::path &zip_path, v3k_progress_fn progress, void *context, InstallOutcome &outcome) {
+    mz_zip_archive zip{};
+    if (!mz_zip_reader_init_file(&zip, zip_path.string().c_str(), 0))
+        return -1;
+    std::vector<std::pair<mz_uint, std::string>> entries;
+    bool vita = false;
+    const mz_uint count = mz_zip_reader_get_num_files(&zip);
+    for (mz_uint i = 0; i < count; i++) {
+        char name[1024];
+        mz_zip_reader_get_filename(&zip, i, name, sizeof(name));
+        std::string lower = string_utils::tolower(name);
+        std::replace(lower.begin(), lower.end(), '\\', '/');
+        if (lower.ends_with("eboot.bin") || lower.find("sce_sys/") != std::string::npos || lower.ends_with(".pkg"))
+            vita = true;
+        if (mz_zip_reader_is_file_a_directory(&zip, i) || lower.starts_with("__macosx"))
+            continue;
+        const fs::path entry_path(lower);
+        const std::string ext = entry_path.extension().string();
+        // (.elf and .app also open in the 3DS core, but turn up in other zips too)
+        if (ext != ".elf" && ext != ".app" && n3ds::is_3ds_file(entry_path))
+            entries.emplace_back(i, name);
+    }
+    if (vita || entries.empty()) {
+        mz_zip_reader_end(&zip);
+        return -1;
+    }
+    const auto rank = [](const std::string &name) {
+        const std::string lower = string_utils::tolower(name);
+        return lower.ends_with(".cia") || lower.ends_with(".zcia") ? 1 : 0;
+    };
+    std::ranges::stable_sort(entries, [&](const auto &a, const auto &b) { return rank(a.second) < rank(b.second); });
+
+    const fs::path temp = emuenv.cache_path / "zip-3ds";
+    std::error_code ec;
+    fs::remove_all(temp, ec);
+    fs::create_directories(temp, ec);
+    int imported = 0;
+    for (const auto &[index, name] : entries) {
+        const fs::path out = temp / fs::path(name).filename();
+        LOG_INFO("Unpacking {} from {} for the 3DS core", out.filename().string(), zip_path.filename().string());
+        if (!mz_zip_reader_extract_to_file(&zip, index, out.string().c_str(), 0)) {
+            outcome.errors.push_back(fmt::format("{}: {} could not be unpacked (is the phone out of space?).", zip_path.filename().string(), out.filename().string()));
+            outcome.failed++;
+            continue;
+        }
+        if (install_file(emuenv, out, {}, progress, context, outcome))
+            imported++;
+        else
+            outcome.failed++;
+        fs::remove(out, ec);
+    }
+    mz_zip_reader_end(&zip);
+    fs::remove_all(temp, ec);
+    return imported;
+}
+
 // ---- taiHEN plugins (ux0:tai/config.txt, read at every game start by modules/taiHEN) ----
 struct PluginSection {
     std::string name; // KERNEL, ALL, or a title ID
@@ -481,6 +540,12 @@ bool install_file(EmuEnvState &emuenv, const fs::path &file, const std::string &
         return true;
     }
     case 2: {
+        // 3DS games in a zip go to the 3DS core
+        if (const int n3ds_results = install_3ds_in_zip(emuenv, file, progress, context, outcome); n3ds_results >= 0) {
+            if (n3ds_results > 1)
+                outcome.installed += n3ds_results - 1;
+            return n3ds_results > 0;
+        }
         // .pkg files inside the zip (often updates or DLC): extracted and installed like loose ones
         const int pkg_results = install_pkgs_in_zip(emuenv, file, progress, context, outcome);
         const auto reinstall = [](const std::string &, const std::string &) { return true; };

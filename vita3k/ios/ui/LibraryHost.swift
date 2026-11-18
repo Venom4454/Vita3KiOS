@@ -23,8 +23,8 @@ enum LibraryHost {
         DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
             guard let presenter = window?.rootViewController, presenter.presentedViewController == nil else { return }
             UserDefaults.standard.set(true, forKey: key)
-            let alert = UIAlertController(title: "RAM helpers need attention", message: hint, preferredStyle: .alert)
-            alert.addAction(UIAlertAction(title: "OK", style: .default))
+            let alert = UIAlertController(title: L("RAM helpers need attention"), message: hint, preferredStyle: .alert)
+            alert.addAction(UIAlertAction(title: L("OK"), style: .default))
             presenter.present(alert, animated: true)
         }
     }

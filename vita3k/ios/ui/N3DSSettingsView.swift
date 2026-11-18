@@ -60,7 +60,7 @@ struct N3DSSettingsView: View {
                     N3DSSettings.landscapeLayout = $0
                 })) {
                     ForEach(N3DSSettings.landscapeLayouts.indices, id: \.self) { index in
-                        Text(N3DSSettings.landscapeLayouts[index].1).tag(N3DSSettings.landscapeLayouts[index].0)
+                        Text(L(N3DSSettings.landscapeLayouts[index].1)).tag(N3DSSettings.landscapeLayouts[index].0)
                     }
                 }
                 Picker("Portrait layout", selection: text("portrait_layout_option")) {
@@ -119,6 +119,8 @@ struct N3DSSettingsView: View {
                 }
                 .buttonStyle(.borderless)
                 Toggle("Draw one eye only (no 3D)", isOn: flag("disable_right_eye_render"))
+                Toggle("Match the screen's refresh", isOn: flag("match_display"))
+                Toggle("Shader JIT", isOn: flag("use_shader_jit"))
                 Toggle("Cool down when hot", isOn: $coolDown)
                 Picker("Fast forward speed", selection: $fastForwardSpeed) {
                     Text("150%").tag("150")
@@ -129,7 +131,7 @@ struct N3DSSettingsView: View {
             } header: {
                 Text("Performance and battery")
             } footer: {
-                Text("Battery: 1×, the coolest and longest-lasting. Balanced: 2×. Quality: 3× on newer phones. The phone has no 3D screen, so drawing one eye only is free speed. Cool down when hot drops to 1× while iOS reports the phone as hot, then goes back. Fast forward: the » button in game, or click the right stick on a controller.")
+                Text("Battery: 1×, the coolest and longest-lasting. Balanced: 2×. Quality: 3× on newer phones. The phone has no 3D screen, so drawing one eye only is free speed. Match the screen's refresh: the 3DS draws 59.83 frames a second, the screen shows 60; running 0.3 percent faster gives every refresh a new frame instead of a small hitch every few seconds. Shader JIT: effects the GPU can't draw by itself are computed several times faster (applies at the next game start). Cool down when hot drops to 1× while iOS reports the phone as hot, then goes back. Fast forward: the » button in game, or click the right stick on a controller.")
             }
 
             Section {
@@ -275,6 +277,8 @@ struct N3DSSettingsView: View {
             store("async_shader_compilation", "1")
             store("async_presentation", "1")
             store("disable_right_eye_render", "1")
+            store("match_display", "1")
+            store("use_shader_jit", "1")
             coolDown = true
         } label: {
             VStack(spacing: 4) {

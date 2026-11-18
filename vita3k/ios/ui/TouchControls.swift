@@ -625,7 +625,7 @@ final class ControlsOverlayView: UIView {
         didSet {
             guard forwardsTouches != oldValue else { return }
             backgroundColor = forwardsTouches ? .black : .clear
-            if forwardsTouches { showToast("Playing on the TV: this phone is the controller") }
+            if forwardsTouches { showToast(L("Playing on the TV: this phone is the controller")) }
         }
     }
 
@@ -692,39 +692,39 @@ final class ControlsOverlayView: UIView {
         guard menuAlert == nil, editor == nil, let root = window?.rootViewController else { return }
         releaseAll()
         v3k_set_game_paused(2, true)
-        let alert = UIAlertController(title: "Game menu", message: fromController
-            ? "Press the controller's Home/PS button, or hold Select + Start, to open this menu. The game is paused while it is open."
-            : "The game is paused while this menu is open.", preferredStyle: .alert)
-        alert.addAction(UIAlertAction(title: "Take screenshot", style: .default) { [weak self] _ in
+        let alert = UIAlertController(title: L("Game menu"), message: fromController
+            ? L("Press the controller's Home/PS button, or hold Select + Start, to open this menu. The game is paused while it is open.")
+            : L("The game is paused while this menu is open."), preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: L("Take screenshot"), style: .default) { [weak self] _ in
             self?.menuClosed()
             v3k_request_screenshot()
         })
         let paused = v3k_game_paused_by_user()
-        alert.addAction(UIAlertAction(title: paused ? "Resume game" : "Pause game", style: .default) { [weak self] _ in
+        alert.addAction(UIAlertAction(title: paused ? L("Resume game") : L("Pause game"), style: .default) { [weak self] _ in
             self?.menuClosed()
             self?.setUserPaused(!paused)
         })
-        alert.addAction(UIAlertAction(title: v3k_rear_touch() ? "Touch the front screen" : "Touch the rear touchpad", style: .default) { [weak self] _ in
+        alert.addAction(UIAlertAction(title: v3k_rear_touch() ? L("Touch the front screen") : L("Touch the rear touchpad"), style: .default) { [weak self] _ in
             self?.menuClosed()
             self?.rearTapped()
         })
-        alert.addAction(UIAlertAction(title: "Edit control layout", style: .default) { [weak self] _ in
+        alert.addAction(UIAlertAction(title: L("Edit control layout"), style: .default) { [weak self] _ in
             self?.menuClosed()
             self?.beginEditing()
         })
-        alert.addAction(UIAlertAction(title: controlsHidden ? "Show touch controls" : "Hide touch controls", style: .default) { [weak self] _ in
+        alert.addAction(UIAlertAction(title: controlsHidden ? L("Show touch controls") : L("Hide touch controls"), style: .default) { [weak self] _ in
             self?.menuClosed()
             self?.controlsHidden.toggle()
         })
-        alert.addAction(UIAlertAction(title: hud.active ? "Hide performance overlay" : "Show performance overlay", style: .default) { [weak self] _ in
+        alert.addAction(UIAlertAction(title: hud.active ? L("Hide performance overlay") : L("Show performance overlay"), style: .default) { [weak self] _ in
             self?.menuClosed()
             self?.togglePerformanceOverlay()
         })
-        alert.addAction(UIAlertAction(title: "Quit game", style: .destructive) { [weak self] _ in
+        alert.addAction(UIAlertAction(title: L("Quit game"), style: .destructive) { [weak self] _ in
             self?.menuClosed()
             self?.confirmQuit()
         })
-        alert.addAction(UIAlertAction(title: "Keep playing", style: .cancel) { [weak self] _ in
+        alert.addAction(UIAlertAction(title: L("Keep playing"), style: .cancel) { [weak self] _ in
             self?.menuClosed()
         })
         menuAlert = alert
@@ -742,8 +742,8 @@ final class ControlsOverlayView: UIView {
     private func confirmQuit() {
         guard let root = window?.rootViewController else { return }
         v3k_set_game_paused(2, true)
-        let alert = UIAlertController(title: "Quit game?", message: "Unsaved progress will be lost.", preferredStyle: .alert)
-        alert.addAction(UIAlertAction(title: "Quit", style: .destructive) { [weak self] _ in
+        let alert = UIAlertController(title: L("Quit game?"), message: L("Unsaved progress will be lost."), preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: L("Quit"), style: .destructive) { [weak self] _ in
             self?.releaseAll()
             // the game closes faster running than paused
             self?.menuAlert = nil
@@ -751,7 +751,7 @@ final class ControlsOverlayView: UIView {
             v3k_set_game_paused(1, false)
             v3k_pad_request_exit()
         })
-        alert.addAction(UIAlertAction(title: "Keep playing", style: .cancel) { [weak self] _ in
+        alert.addAction(UIAlertAction(title: L("Keep playing"), style: .cancel) { [weak self] _ in
             self?.menuClosed()
         })
         menuAlert = alert
