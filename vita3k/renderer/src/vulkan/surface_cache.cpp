@@ -735,14 +735,8 @@ std::optional<TextureLookupResult> VKSurfaceCache::retrieve_color_surface_as_tex
                 .format = base_format
             };
             if (bytes_per_pixel_requested == bytes_per_pixel_in_store) {
-                const bool full_width_read = (start_x == 0) && (width == info.width);
-                if (full_width_read && !non_integer_downsample) {
-                    casted->texture.width = width;
-                    casted->texture.height = height;
-                } else {
-                    casted->texture.width = original_width;
-                    casted->texture.height = original_height;
-                }
+                casted->texture.width = original_width;
+                casted->texture.height = original_height;
             } else {
                 casted->texture.width = width;
                 casted->texture.height = height;
