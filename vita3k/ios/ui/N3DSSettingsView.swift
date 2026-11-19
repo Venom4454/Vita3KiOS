@@ -444,6 +444,12 @@ struct N3DSGameDetailsView: View {
     @EnvironmentObject var model: LibraryModel
     @Environment(\.dismiss) private var dismiss
     @State private var confirmDelete = false
+    @StateObject private var extras: N3DSExtrasModel
+
+    init(app: GameApp) {
+        self.app = app
+        _extras = StateObject(wrappedValue: N3DSExtrasModel(app: app))
+    }
 
     var body: some View {
         NavigationStack {
@@ -481,7 +487,7 @@ struct N3DSGameDetailsView: View {
                     Text("Saves are kept by the 3DS core in Documents/3DS/azahar (Files app › Hinoki › 3DS).")
                 }
                 if app.version != "Homebrew" {
-                    N3DSGameExtrasSections(app: app)
+                    N3DSGameExtrasSections(extras: extras)
                 }
                 Section {
                     Button("Delete game", role: .destructive) { confirmDelete = true }
@@ -494,6 +500,9 @@ struct N3DSGameDetailsView: View {
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
             }
+            // once, for the whole page: on the rows these were copied onto every section
+            .modifier(N3DSExtrasPresenters(extras: extras))
+            .onAppear { extras.load() }
             .confirmationDialog("Delete \(app.title)?", isPresented: $confirmDelete, titleVisibility: .visible) {
                 Button("Delete", role: .destructive) {
                     _ = v3k_n3ds_remove(app.titleId)

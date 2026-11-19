@@ -10,7 +10,7 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
-private struct N3DSExtras: Decodable {
+struct N3DSExtras: Decodable {
     var update = false
     var dlc = false
     var updateBytes: Double = 0
@@ -25,149 +25,37 @@ private var n3dsUserFolder: URL? {
     takeString(v3k_n3ds_user_folder()).map { URL(fileURLWithPath: $0, isDirectory: true) }
 }
 
-struct N3DSGameExtrasSections: View {
+/// A 3DS game's updates, saves, cheats and mods: shared by the page's rows (N3DSGameExtrasSections) and
+/// the pickers and alerts, which the page attaches once (N3DSExtrasPresenters). Attached to the rows they
+/// were copied onto every section of the Form: one tap opened several pickers at once and iOS closed them.
+@MainActor
+final class N3DSExtrasModel: ObservableObject {
+    enum Picking { case update, mod, save }
+
     let app: GameApp
-    @EnvironmentObject var model: LibraryModel
-    @State private var extras = N3DSExtras()
-    /// One file picker for the page (several on one screen don't get along)
-    private enum Picking {
-        case update, mod, save
-    }
-    @State private var picking: Picking = .update
-    @State private var importing = false
-    @State private var exported: URL?
-    @State private var modSummary = ""
-    @State private var cheatCount = 0
-    @State private var message: String?
-    @State private var confirmRemove: Bool? // true: DLC, false: update
+    @Published var extras = N3DSExtras()
+    @Published var modSummary = ""
+    @Published var cheatCount = 0
+    @Published var message: String?
+    @Published var confirmRemove: Bool? // true: DLC, false: update
+    @Published var exported: URL?
+    @Published var picking: Picking = .update
+    @Published var importing = false
 
-    var body: some View {
-        Group {
-            Section {
-                NavigationLink {
-                    Form { N3DSInfoSections(app: app) }
-                        .navigationTitle("Information & artwork")
-                        .navigationBarTitleDisplayMode(.inline)
-                } label: {
-                    Label("Information, name & artwork", systemImage: "info.circle")
-                }
-            }
-
-            Section {
-                LabeledContent("Update", value: extras.update ? "Installed · \(bytesText(extras.updateBytes))" : "None")
-                LabeledContent("DLC", value: extras.dlc ? "Installed · \(bytesText(extras.dlcBytes))" : "None")
-                Button {
-                    picking = .update
-                    importing = true
-                } label: {
-                    Label("Install update or DLC (.cia)", systemImage: "arrow.down.app")
-                }
-                if extras.update {
-                    Button("Remove update", role: .destructive) { confirmRemove = false }
-                }
-                if extras.dlc {
-                    Button("Remove DLC", role: .destructive) { confirmRemove = true }
-                }
-            } header: {
-                Text("Updates & DLC")
-            } footer: {
-                Text("Pick the update or DLC as a .cia (or .zcia): encrypted ones work too once your keys are added. They apply to the game whether it is installed or a cartridge dump (.3ds, .cci).")
-            }
-
-            Section {
-                Button {
-                    picking = .save
-                    importing = true
-                } label: {
-                    Label("Import save (zip or folder)", systemImage: "square.and.arrow.down")
-                }
-                Button {
-                    let (url, problem) = N3DSSaves.exportSave(app)
-                    if let url { exported = url } else { message = problem }
-                } label: {
-                    Label("Export save", systemImage: "square.and.arrow.up")
-                }
-            } header: {
-                Text("Save data")
-            } footer: {
-                Text("Import takes a save from Checkpoint, JKSM or another emulator: the folder with the save's files (or a zip of it). The current save is backed up to Files › Hinoki › Save Backups first. Close the game before importing.")
-            }
-
-            Section {
-                NavigationLink {
-                    N3DSCheatsView(app: app)
-                } label: {
-                    LabeledContent {
-                        Text(cheatCount == 0 ? "None" : "\(cheatCount)")
-                    } label: {
-                        Label("Cheats", systemImage: "wand.and.stars")
-                    }
-                }
-            } footer: {
-                Text("Action Replay / Gateway codes. Turned-on cheats apply the next time the game starts.")
-            }
-
-            Section {
-                LabeledContent("Installed", value: modSummary.isEmpty ? "None" : modSummary)
-                Button {
-                    picking = .mod
-                    importing = true
-                } label: {
-                    Label("Add a mod (zip or folder)", systemImage: "shippingbox")
-                }
-                if !modSummary.isEmpty {
-                    Button("Remove mods", role: .destructive) {
-                        if let folder = modFolder { try? FileManager.default.removeItem(at: folder) }
-                        load()
-                    }
-                }
-            } header: {
-                Text("Mods")
-            } footer: {
-                Text("A mod's folder with romfs/ and/or exefs/ inside (or code.ips / code.bps), as Luma uses: luma/titles/\(app.titleId)/… works as is. Several mods are merged; files from the last one added win. They load the next time the game starts.")
-            }
-        }
-        .onAppear(perform: load)
-        .hinokiImporter(isPresented: $importing,
-                        types: picking == .update ? [.item] : (picking == .mod ? [.zip, .folder, .item] : [.zip, .folder]),
-                        multiple: picking == .update,
-                        purpose: picking == .update ? .install : (picking == .mod ? .mod : .save)) { urls in
-            guard let first = urls.first else { return }
-            switch picking {
-            case .update:
-                model.enqueue(urls)
-                // the queue installs in the background; look again in a moment
-                DispatchQueue.main.asyncAfter(deadline: .now() + 2) { load() }
-                DispatchQueue.main.asyncAfter(deadline: .now() + 8) { load() }
-                DispatchQueue.main.asyncAfter(deadline: .now() + 20) { load() }
-            case .mod:
-                message = addMod(first)
-                load()
-            case .save:
-                message = N3DSSaves.importSave(first, into: app)
-            }
-        }
-        .sheet(item: Binding(get: { exported.map(ShareItem.init) }, set: { if $0 == nil { exported = nil } })) { item in
-            ShareSheet(items: [item.url])
-        }
-        .alert(message ?? "", isPresented: Binding(get: { message != nil }, set: { if !$0 { message = nil } })) {
-            Button("OK", role: .cancel) {}
-        }
-        .confirmationDialog(confirmRemove == true ? "Remove the DLC?" : "Remove the update?",
-                            isPresented: Binding(get: { confirmRemove != nil }, set: { if !$0 { confirmRemove = nil } }), titleVisibility: .visible) {
-            Button("Remove", role: .destructive) {
-                if let dlc = confirmRemove { _ = v3k_n3ds_remove_extra(app.titleId, dlc) }
-                confirmRemove = nil
-                load()
-            }
-        }
+    init(app: GameApp) {
+        self.app = app
     }
 
-    private var modFolder: URL? {
+    func pick(_ what: Picking) {
+        picking = what
+        importing = true
+    }
+
+    var modFolder: URL? {
         n3dsUserFolder?.appendingPathComponent("load/mods/\(app.titleId.uppercased())", isDirectory: true)
     }
 
-    private func load() {
+    func load() {
         if let json = takeString(v3k_n3ds_extras_json(app.titleId)), let data = json.data(using: .utf8),
            let decoded = try? JSONDecoder().decode(N3DSExtras.self, from: data) {
             extras = decoded
@@ -175,15 +63,36 @@ struct N3DSGameExtrasSections: View {
         cheatCount = N3DSCheatFile.load(app.titleId).count
         let fm = FileManager.default
         if let folder = modFolder, let entries = try? fm.contentsOfDirectory(atPath: folder.path), !entries.isEmpty {
-            let parts = entries.filter { !$0.hasPrefix(".") }.sorted()
-            modSummary = parts.joined(separator: ", ")
+            modSummary = entries.filter { !$0.hasPrefix(".") }.sorted().joined(separator: ", ")
         } else {
             modSummary = ""
         }
     }
 
+    func picked(_ urls: [URL], library: LibraryModel) {
+        guard let first = urls.first else { return }
+        switch picking {
+        case .update:
+            library.enqueue(urls)
+            // the queue installs in the background; look again in a moment
+            for delay in [2.0, 8.0, 20.0] {
+                DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in self?.load() }
+            }
+        case .mod:
+            message = addMod(first)
+            load()
+        case .save:
+            message = N3DSSaves.importSave(first, into: app)
+        }
+    }
+
+    func removeMods() {
+        if let folder = modFolder { try? FileManager.default.removeItem(at: folder) }
+        load()
+    }
+
     /// Finds the mod's root (the folder holding romfs/, exefs/ or a code patch) and merges it in
-    private func addMod(_ picked: URL) -> String {
+    func addMod(_ picked: URL) -> String {
         // a game paused in the background counts as running: adding is fine, the mod is read when it boots
         let restart = v3k_n3ds_running() ? " Close and reopen the game to load it." : ""
         guard let target = modFolder else { return "The 3DS core isn't available." }
@@ -260,7 +169,7 @@ struct N3DSGameExtrasSections: View {
         return fallback
     }
 
-    private func merge(_ source: URL, into target: URL) throws {
+    func merge(_ source: URL, into target: URL) throws {
         let fm = FileManager.default
         for entry in try fm.contentsOfDirectory(at: source, includingPropertiesForKeys: [.isDirectoryKey]) {
             let name = entry.lastPathComponent
@@ -275,6 +184,124 @@ struct N3DSGameExtrasSections: View {
                 if fm.fileExists(atPath: destination.path) { try fm.removeItem(at: destination) }
                 try fm.copyItem(at: entry, to: destination)
             }
+        }
+    }
+}
+
+/// The pickers, share sheet and alerts of a 3DS game's page: attach once, to the page (not to its rows)
+struct N3DSExtrasPresenters: ViewModifier {
+    @ObservedObject var extras: N3DSExtrasModel
+    @EnvironmentObject var library: LibraryModel
+
+    func body(content: Content) -> some View {
+        content
+            .hinokiImporter(isPresented: $extras.importing,
+                            types: extras.picking == .update ? [.item] : (extras.picking == .mod ? [.zip, .folder, .item] : [.zip, .folder]),
+                            multiple: extras.picking == .update,
+                            purpose: extras.picking == .update ? .install : (extras.picking == .mod ? .mod : .save)) { urls in
+                extras.picked(urls, library: library)
+            }
+            .sheet(item: Binding(get: { extras.exported.map(ShareItem.init) }, set: { if $0 == nil { extras.exported = nil } })) { item in
+                ShareSheet(items: [item.url])
+            }
+            .alert(extras.message ?? "", isPresented: Binding(get: { extras.message != nil }, set: { if !$0 { extras.message = nil } })) {
+                Button("OK", role: .cancel) {}
+            }
+            .confirmationDialog(extras.confirmRemove == true ? "Remove the DLC?" : "Remove the update?",
+                                isPresented: Binding(get: { extras.confirmRemove != nil }, set: { if !$0 { extras.confirmRemove = nil } }),
+                                titleVisibility: .visible) {
+                Button("Remove", role: .destructive) {
+                    if let dlc = extras.confirmRemove { _ = v3k_n3ds_remove_extra(extras.app.titleId, dlc) }
+                    extras.confirmRemove = nil
+                    extras.load()
+                }
+            }
+    }
+}
+
+/// The rows of a 3DS game's page (inside its Form). Only rows here: see N3DSExtrasPresenters
+struct N3DSGameExtrasSections: View {
+    @ObservedObject var extras: N3DSExtrasModel
+    private var app: GameApp { extras.app }
+
+    var body: some View {
+        Section {
+            NavigationLink {
+                Form { N3DSInfoSections(app: app) }
+                    .navigationTitle("Information & artwork")
+                    .navigationBarTitleDisplayMode(.inline)
+            } label: {
+                Label("Information, name & artwork", systemImage: "info.circle")
+            }
+        }
+
+        Section {
+            LabeledContent("Update", value: extras.extras.update ? "Installed · \(bytesText(extras.extras.updateBytes))" : "None")
+            LabeledContent("DLC", value: extras.extras.dlc ? "Installed · \(bytesText(extras.extras.dlcBytes))" : "None")
+            Button {
+                extras.pick(.update)
+            } label: {
+                Label("Install update or DLC (.cia)", systemImage: "arrow.down.app")
+            }
+            if extras.extras.update {
+                Button("Remove update", role: .destructive) { extras.confirmRemove = false }
+            }
+            if extras.extras.dlc {
+                Button("Remove DLC", role: .destructive) { extras.confirmRemove = true }
+            }
+        } header: {
+            Text("Updates & DLC")
+        } footer: {
+            Text("Pick the update or DLC as a .cia (or .zcia): encrypted ones work too once your keys are added. They apply to the game whether it is installed or a cartridge dump (.3ds, .cci).")
+        }
+
+        Section {
+            Button {
+                extras.pick(.save)
+            } label: {
+                Label("Import save (zip or folder)", systemImage: "square.and.arrow.down")
+            }
+            Button {
+                let (url, problem) = N3DSSaves.exportSave(app)
+                if let url { extras.exported = url } else { extras.message = problem }
+            } label: {
+                Label("Export save", systemImage: "square.and.arrow.up")
+            }
+        } header: {
+            Text("Save data")
+        } footer: {
+            Text("Import takes a save from Checkpoint, JKSM or another emulator: the folder with the save's files (or a zip of it). The current save is backed up to Files › Hinoki › Save Backups first. Close the game before importing.")
+        }
+
+        Section {
+            NavigationLink {
+                N3DSCheatsView(app: app)
+                    .onDisappear { extras.load() }
+            } label: {
+                LabeledContent {
+                    Text(extras.cheatCount == 0 ? "None" : "\(extras.cheatCount)")
+                } label: {
+                    Label("Cheats", systemImage: "wand.and.stars")
+                }
+            }
+        } footer: {
+            Text("Action Replay / Gateway codes. Turned-on cheats apply the next time the game starts.")
+        }
+
+        Section {
+            LabeledContent("Installed", value: extras.modSummary.isEmpty ? "None" : extras.modSummary)
+            Button {
+                extras.pick(.mod)
+            } label: {
+                Label("Add a mod (zip, folder or .ips)", systemImage: "shippingbox")
+            }
+            if !extras.modSummary.isEmpty {
+                Button("Remove mods", role: .destructive) { extras.removeMods() }
+            }
+        } header: {
+            Text("Mods")
+        } footer: {
+            Text("A mod's folder with romfs/ and/or exefs/ inside (or code.ips / code.bps), as Luma uses: luma/titles/\(app.titleId)/… works as is. Pick the zip, tick the folder, or open it and tap \"Use this folder\". Several mods are merged; files from the last one added win. They load the next time the game starts.")
         }
     }
 }

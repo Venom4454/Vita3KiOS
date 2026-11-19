@@ -267,34 +267,47 @@ struct HinokiFilePicker: View {
 
 // MARK: - Importing for a game's page
 
-/// The system document picker, presented by UIKit. SwiftUI's .fileImporter only works once per branch of
-/// views: a game's page has several (update, mod, save, cheats), and the inner ones never opened.
-private struct SystemDocumentPicker: UIViewControllerRepresentable {
-    let types: [UTType]
-    let multiple: Bool
-    let onPick: ([URL]) -> Void
-    let onCancel: () -> Void
+/// The system document picker, presented by UIKit itself over whatever is on screen (a sheet included).
+/// Embedded in a SwiftUI sheet it could close itself right after opening, and SwiftUI's .fileImporter
+/// opens only once per branch of views (a game's page has several imports).
+final class SystemDocumentPicker: NSObject, UIDocumentPickerDelegate {
+    private static var current: SystemDocumentPicker?
+    private let onPick: ([URL]) -> Void
 
-    func makeCoordinator() -> Coordinator { Coordinator(onPick: onPick, onCancel: onCancel) }
-
-    func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
-        let picker = UIDocumentPickerViewController(forOpeningContentTypes: types, asCopy: false)
-        picker.allowsMultipleSelection = multiple
-        picker.delegate = context.coordinator
-        return picker
+    private init(onPick: @escaping ([URL]) -> Void) {
+        self.onPick = onPick
     }
 
-    func updateUIViewController(_ controller: UIDocumentPickerViewController, context: Context) {}
+    /// false when there is nothing to present it from
+    @discardableResult
+    static func present(types: [UTType], multiple: Bool, onPick: @escaping ([URL]) -> Void) -> Bool {
+        guard let top = topViewController() else { return false }
+        let picker = UIDocumentPickerViewController(forOpeningContentTypes: types, asCopy: false)
+        picker.allowsMultipleSelection = multiple
+        let delegate = SystemDocumentPicker(onPick: onPick)
+        picker.delegate = delegate
+        current = delegate // the picker holds its delegate weakly
+        top.present(picker, animated: true)
+        return true
+    }
 
-    final class Coordinator: NSObject, UIDocumentPickerDelegate {
-        let onPick: ([URL]) -> Void
-        let onCancel: () -> Void
-        init(onPick: @escaping ([URL]) -> Void, onCancel: @escaping () -> Void) {
-            self.onPick = onPick
-            self.onCancel = onCancel
+    func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
+        Self.current = nil
+        onPick(urls)
+    }
+
+    func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
+        Self.current = nil
+    }
+
+    private static func topViewController() -> UIViewController? {
+        let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+        let window = scenes.flatMap(\.windows).first(where: \.isKeyWindow) ?? scenes.first?.windows.first
+        var top = window?.rootViewController
+        while let presented = top?.presentedViewController, !presented.isBeingDismissed {
+            top = presented
         }
-        func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) { onPick(urls) }
-        func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) { onCancel() }
+        return top
     }
 }
 
@@ -309,7 +322,6 @@ private struct HinokiImporter: ViewModifier {
     let onPick: ([URL]) -> Void
 
     @AppStorage("v3k.builtInPicker") private var preferBuiltInPicker = false
-    @State private var showingSystem = false
     @State private var showingBuiltIn = false
 
     func body(content: Content) -> some View {
@@ -317,24 +329,23 @@ private struct HinokiImporter: ViewModifier {
             .onChange(of: isPresented) { _, requested in
                 guard requested else { return }
                 isPresented = false
-                if preferBuiltInPicker { showingBuiltIn = true } else { showingSystem = true }
-            }
-            .sheet(isPresented: $showingSystem) {
-                SystemDocumentPicker(types: types, multiple: multiple, onPick: { urls in
-                    showingSystem = false
-                    let readable = urls.filter(Self.readable)
-                    if urls.isEmpty || readable.count < urls.count {
-                        v3k_log_ui("Import: the system picker gave back \(urls.count) item(s), \(readable.count) readable; opening Hinoki's picker")
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { showingBuiltIn = true }
-                        return
-                    }
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { onPick(readable) }
-                }, onCancel: { showingSystem = false })
-                .ignoresSafeArea()
+                if preferBuiltInPicker || !SystemDocumentPicker.present(types: types, multiple: multiple, onPick: picked) {
+                    showingBuiltIn = true
+                }
             }
             .sheet(isPresented: $showingBuiltIn) {
                 HinokiFilePicker(purpose: purpose, onPick: onPick)
             }
+    }
+
+    private func picked(_ urls: [URL]) {
+        let readable = urls.filter(Self.readable)
+        if urls.isEmpty || readable.count < urls.count {
+            v3k_log_ui("Import: the system picker gave back \(urls.count) item(s), \(readable.count) readable; opening Hinoki's picker")
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { showingBuiltIn = true }
+            return
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { onPick(readable) }
     }
 
     private static func readable(_ url: URL) -> Bool {
