@@ -2112,6 +2112,9 @@ bool v3k_delete_game_content(const char *title_id, bool update) {
 namespace {
 constexpr const char *COMPAT_DB_ZIP = "https://github.com/Vita3K/compatibility/releases/download/compat_db/app_compat_db.xml.zip";
 constexpr const char *GAME_FIXES_URL = "https://raw.githubusercontent.com/oledz-i/Hinoki/main/dist/game-fixes.txt";
+// The same file through a CDN, for networks that can't reach raw.githubusercontent.com (logs show "bad URL"
+// and "Could not connect to the server" there; the list then never applied, e.g. Killzone ran without its fix)
+constexpr const char *GAME_FIXES_MIRROR_URL = "https://cdn.jsdelivr.net/gh/oledz-i/Hinoki@main/dist/game-fixes.txt";
 } // namespace
 
 bool v3k_update_compat_db(void) {
@@ -2134,10 +2137,25 @@ bool v3k_update_game_fixes(void) {
     auto *emuenv = ios::get_emuenv();
     if (!emuenv)
         return false;
+    const auto fetch = [](const char *url, std::string &data, std::string &error) {
+        data.clear();
+        error.clear();
+        if (!ios::download(url, data, error))
+            return false;
+        if (data.empty() || data.size() > 1024 * 1024 || data.find('\0') != std::string::npos) {
+            error = "not a text file";
+            return false;
+        }
+        return true;
+    };
     std::string data, error;
-    if (!ios::download(GAME_FIXES_URL, data, error) || data.empty() || data.size() > 1024 * 1024 || data.find('\0') != std::string::npos) {
-        LOG_WARN("Game fixes list download failed: {}", error.empty() ? "not a text file" : error);
-        return false;
+    if (!fetch(GAME_FIXES_URL, data, error)) {
+        std::string mirror_error;
+        if (!fetch(GAME_FIXES_MIRROR_URL, data, mirror_error)) {
+            LOG_WARN("Game fixes list download failed: {} (mirror: {})", error, mirror_error);
+            return false;
+        }
+        LOG_INFO("Game fixes list: GitHub unreachable ({}), downloaded from the mirror", error);
     }
     const fs::path file = fs::path(emuenv->cache_path.string()) / "game-fixes.txt";
     const fs::path temp = file.string() + ".new";
