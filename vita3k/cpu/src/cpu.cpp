@@ -169,8 +169,10 @@ void place_call(CPUState &state, Address fn, std::initializer_list<uint32_t> arg
     for (size_t i = 0; i < std::min<size_t>(args.size(), 4); i++)
         write_reg(state, i, args.begin()[i]);
     if (args.size() > 4) {
-        // TODO align to 16 bytes
-        sp -= 4 * (args.size() - 4);
+        // the ARM calling convention keeps the stack 16-byte aligned at a call (upstream f6b86e2d)
+        constexpr size_t stack_alignment = 16;
+        const size_t stack_args_size = sizeof(uint32_t) * (args.size() - 4);
+        sp -= static_cast<uint32_t>((stack_args_size + stack_alignment - 1) & ~(stack_alignment - 1));
         std::ranges::copy(args.begin() + 4, args.end(), Ptr<uint32_t>(sp).get(*state.mem));
     }
     write_sp(state, sp);
