@@ -388,6 +388,21 @@ void EmulationThread(std::string path, azh_event_fn events, void* context) {
     system.GetAppLoader().ReadProgramId(program_id);
     g_program_id = program_id;
     system.GPU().ApplyPerProgramSettings(program_id);
+    {
+        // What a mod report needs: did this game find its mod folder (load/mods/<title ID>/, updates use the game's)
+        u64 mod_id = program_id;
+        if ((mod_id & 0x000000ff'00000000ull) == 0x0000000e'00000000ull)
+            mod_id &= ~0x0000000e'00000000ull;
+        const std::string mods = fmt::format("{}mods/{:016X}/", FileUtil::GetUserPath(FileUtil::UserPath::LoadDir), mod_id);
+        if (FileUtil::Exists(mods)) {
+            const auto has = [&](const char* name) { return FileUtil::Exists(mods + name) ? "yes" : "no"; };
+            LOG_INFO(Frontend, "Mods for {:016X}: romfs {}, exefs {}, code.ips {}, code.bps {} ({})", mod_id, has("romfs"),
+                     has("exefs"), FileUtil::Exists(mods + "exefs/code.ips") || FileUtil::Exists(mods + "code.ips") ? "yes" : "no",
+                     FileUtil::Exists(mods + "exefs/code.bps") || FileUtil::Exists(mods + "code.bps") ? "yes" : "no", mods);
+        } else {
+            LOG_INFO(Frontend, "No mods for {:016X} (none in {})", mod_id, mods);
+        }
+    }
 
     send(AZH_EVENT_LOADING, 0, 0, nullptr);
     system.GPU().Renderer().Rasterizer()->LoadDefaultDiskResources(
@@ -411,11 +426,22 @@ void EmulationThread(std::string path, azh_event_fn events, void* context) {
     } window;
     std::chrono::steady_clock::time_point state_waiting_since{};
     Core::System::ResultStatus exit_status = Core::System::ResultStatus::Success;
+    bool saved_on_pause = false;
     while (!g_stop) {
         HandleStateRequest(system, events, context, state_waiting_since);
         if (g_paused) {
             const float volume = Settings::values.volume.GetValue();
             Settings::values.volume = 0.f;
+            // Paused is often the last moment before iOS closes the app: keep what Azahar only
+            // writes at shutdown (compiled pipelines, the log's last lines)
+            if (!saved_on_pause) {
+                saved_on_pause = true;
+                if (auto* rasterizer = system.GPU().Renderer().Rasterizer()) {
+                    rasterizer->SaveDiskResources();
+                }
+                LOG_INFO(Frontend, "Paused: pipeline cache saved");
+                Common::Log::Flush();
+            }
             {
                 std::unique_lock lock{g_pause_mutex};
                 g_pause_cv.wait(lock, [] { return !g_paused || g_stop || g_state_request != 0; });
@@ -423,6 +449,7 @@ void EmulationThread(std::string path, azh_event_fn events, void* context) {
             Settings::values.volume = volume;
             continue;
         }
+        saved_on_pause = false;
         const auto status = system.RunLoop();
         if (status == Core::System::ResultStatus::ShutdownRequested) {
             exit_status = status;
@@ -465,6 +492,7 @@ void EmulationThread(std::string path, azh_event_fn events, void* context) {
                          ms(window.rest), ms(window.gpu), ms(window.swap), ms(window.svc),
                          ms(window.ipc));
                 window = PerfWindow{};
+                Common::Log::Flush(); // the Perf lines reach the file even if the app is killed
             }
         }
     }

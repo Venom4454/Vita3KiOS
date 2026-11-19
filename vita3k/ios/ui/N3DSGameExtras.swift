@@ -30,11 +30,11 @@ struct N3DSGameExtrasSections: View {
     @EnvironmentObject var model: LibraryModel
     @State private var extras = N3DSExtras()
     /// One file picker for the page (several on one screen don't get along)
-    private enum Picking: Identifiable {
+    private enum Picking {
         case update, mod, save
-        var id: Int { hashValue }
     }
-    @State private var picking: Picking?
+    @State private var picking: Picking = .update
+    @State private var importing = false
     @State private var exported: URL?
     @State private var modSummary = ""
     @State private var cheatCount = 0
@@ -58,6 +58,7 @@ struct N3DSGameExtrasSections: View {
                 LabeledContent("DLC", value: extras.dlc ? "Installed · \(bytesText(extras.dlcBytes))" : "None")
                 Button {
                     picking = .update
+                    importing = true
                 } label: {
                     Label("Install update or DLC (.cia)", systemImage: "arrow.down.app")
                 }
@@ -76,6 +77,7 @@ struct N3DSGameExtrasSections: View {
             Section {
                 Button {
                     picking = .save
+                    importing = true
                 } label: {
                     Label("Import save (zip or folder)", systemImage: "square.and.arrow.down")
                 }
@@ -109,6 +111,7 @@ struct N3DSGameExtrasSections: View {
                 LabeledContent("Installed", value: modSummary.isEmpty ? "None" : modSummary)
                 Button {
                     picking = .mod
+                    importing = true
                 } label: {
                     Label("Add a mod (zip or folder)", systemImage: "shippingbox")
                 }
@@ -125,24 +128,23 @@ struct N3DSGameExtrasSections: View {
             }
         }
         .onAppear(perform: load)
-        .fileImporter(isPresented: Binding(get: { picking != nil }, set: { if !$0 { picking = nil } }),
-                      allowedContentTypes: picking == .update ? [.item] : [.zip, .folder], allowsMultipleSelection: picking == .update) { result in
-            let mode = picking
-            picking = nil
-            guard case let .success(urls) = result, let first = urls.first else { return }
-            switch mode {
+        .hinokiImporter(isPresented: $importing,
+                        types: picking == .update ? [.item] : (picking == .mod ? [.zip, .folder, .item] : [.zip, .folder]),
+                        multiple: picking == .update,
+                        purpose: picking == .update ? .install : (picking == .mod ? .mod : .save)) { urls in
+            guard let first = urls.first else { return }
+            switch picking {
             case .update:
                 model.enqueue(urls)
                 // the queue installs in the background; look again in a moment
                 DispatchQueue.main.asyncAfter(deadline: .now() + 2) { load() }
                 DispatchQueue.main.asyncAfter(deadline: .now() + 8) { load() }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 20) { load() }
             case .mod:
                 message = addMod(first)
                 load()
             case .save:
                 message = N3DSSaves.importSave(first, into: app)
-            case nil:
-                break
             }
         }
         .sheet(item: Binding(get: { exported.map(ShareItem.init) }, set: { if $0 == nil { exported = nil } })) { item in
@@ -182,7 +184,8 @@ struct N3DSGameExtrasSections: View {
 
     /// Finds the mod's root (the folder holding romfs/, exefs/ or a code patch) and merges it in
     private func addMod(_ picked: URL) -> String {
-        guard !v3k_n3ds_running() else { return "Close the game first, then add the mod." }
+        // a game paused in the background counts as running: adding is fine, the mod is read when it boots
+        let restart = v3k_n3ds_running() ? " Close and reopen the game to load it." : ""
         guard let target = modFolder else { return "The 3DS core isn't available." }
         let fm = FileManager.default
         let access = picked.startAccessingSecurityScopedResource()
@@ -190,30 +193,29 @@ struct N3DSGameExtrasSections: View {
         let work = fm.temporaryDirectory.appendingPathComponent("3ds-mod-\(UUID().uuidString)")
         defer { try? fm.removeItem(at: work) }
         var source = picked
-        if picked.pathExtension.lowercased() == "zip" {
+        let ext = picked.pathExtension.lowercased()
+        if ext == "ips" || ext == "bps" {
+            // a code patch on its own: Azahar reads it as exefs/code.ips (or .bps)
+            do {
+                let exefs = target.appendingPathComponent("exefs", isDirectory: true)
+                try fm.createDirectory(at: exefs, withIntermediateDirectories: true)
+                let destination = exefs.appendingPathComponent("code.\(ext)")
+                if fm.fileExists(atPath: destination.path) { try fm.removeItem(at: destination) }
+                try fm.copyItem(at: picked, to: destination)
+            } catch {
+                return "The patch couldn't be copied: \(error.localizedDescription)"
+            }
+            v3k_log_ui("3DS: added a code patch to \(app.titleId) from \(picked.lastPathComponent)")
+            return "Code patch added. It applies the next time \(app.title) starts.\(restart)"
+        }
+        if ext == "zip" {
             var text: UnsafeMutablePointer<CChar>?
             let ok = v3k_unzip(picked.path, work.path, &text)
             let problem = takeString(text) ?? ""
             guard ok else { return problem.isEmpty ? "That zip couldn't be read." : problem }
             source = work
         }
-        let markers: Set<String> = ["romfs", "exefs", "code.ips", "code.bps", "exheader.bin"]
-        var root: URL?
-        var queue: [(URL, Int)] = [(source, 0)]
-        while !queue.isEmpty && root == nil {
-            let (folder, depth) = queue.removeFirst()
-            let entries = (try? fm.contentsOfDirectory(at: folder, includingPropertiesForKeys: [.isDirectoryKey])) ?? []
-            if entries.contains(where: { markers.contains($0.lastPathComponent.lowercased()) }) {
-                root = folder
-                break
-            }
-            if depth < 6 {
-                for entry in entries where (try? entry.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true {
-                    queue.append((entry, depth + 1))
-                }
-            }
-        }
-        guard let root else {
+        guard let root = Self.modRoot(in: source, titleId: app.titleId) else {
             return "No mod found there: a 3DS mod has a romfs or exefs folder (or code.ips / code.bps)."
         }
         do {
@@ -223,7 +225,39 @@ struct N3DSGameExtrasSections: View {
             return "The mod couldn't be copied: \(error.localizedDescription)"
         }
         v3k_log_ui("3DS: added a mod to \(app.titleId) from \(picked.lastPathComponent)")
-        return "Mod added. It loads the next time \(app.title) starts."
+        return "Mod added. It loads the next time \(app.title) starts.\(restart)"
+    }
+
+    /// The folder holding the mod's romfs/, exefs/ or code patch. Packs often wrap it (load/mods/<ID>/,
+    /// luma/titles/<ID>/, a release folder) and some carry one folder per region: the one named with
+    /// this game's title ID wins, and folders named with another title ID are left alone.
+    static func modRoot(in source: URL, titleId: String) -> URL? {
+        let fm = FileManager.default
+        let markers: Set<String> = ["romfs", "exefs", "romfs_ext", "code.ips", "code.bps", "exheader.bin"]
+        let ownId = titleId.uppercased()
+        let isTitleId: (String) -> Bool = { name in
+            name.count == 16 && name.allSatisfy { $0.isHexDigit }
+        }
+        var fallback: URL?
+        var queue: [(URL, Int)] = [(source, 0)]
+        while !queue.isEmpty {
+            let (folder, depth) = queue.removeFirst()
+            let entries = ((try? fm.contentsOfDirectory(at: folder, includingPropertiesForKeys: [.isDirectoryKey])) ?? [])
+                .sorted { $0.lastPathComponent < $1.lastPathComponent }
+            if entries.contains(where: { markers.contains($0.lastPathComponent.lowercased()) }) {
+                if folder.lastPathComponent.uppercased() == ownId { return folder }
+                if fallback == nil { fallback = folder }
+                continue
+            }
+            guard depth < 6 else { continue }
+            for entry in entries where (try? entry.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true {
+                let name = entry.lastPathComponent.uppercased()
+                // another game's (or region's) folder
+                if isTitleId(name) && name != ownId { continue }
+                queue.append((entry, depth + 1))
+            }
+        }
+        return fallback
     }
 
     private func merge(_ source: URL, into target: URL) throws {
@@ -375,8 +409,8 @@ struct N3DSCheatsView: View {
                 }
             }
         }
-        .fileImporter(isPresented: $importing, allowedContentTypes: [.plainText, .text, .item]) { result in
-            guard case let .success(url) = result else { return }
+        .hinokiImporter(isPresented: $importing, types: [.plainText, .text, .item], purpose: .cheat) { urls in
+            guard let url = urls.first else { return }
             let access = url.startAccessingSecurityScopedResource()
             defer { if access { url.stopAccessingSecurityScopedResource() } }
             guard let text = (try? String(contentsOf: url, encoding: .utf8)) ?? (try? String(contentsOf: url, encoding: .isoLatin1)) else {

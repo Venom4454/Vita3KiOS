@@ -239,6 +239,9 @@ char *v3k_cheats_folder(void);
 // JSON {"path","files","bytes","enabled"}
 char *v3k_mod_info_json(const char *title_id);
 bool v3k_import_mod(const char *title_id, const char *zip_path, char **message);
+// A VitaCheat .psv or a Vita3K patch .txt for one game (named so its title ID leads)
+bool v3k_import_cheat_file(const char *title_id, const char *path, char **message);
+bool v3k_import_patch_file(const char *title_id, const char *path, char **message);
 bool v3k_set_mods_enabled(const char *title_id, bool enabled);
 bool v3k_delete_mods(const char *title_id);
 

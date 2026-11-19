@@ -657,4 +657,77 @@ edit(VKP2, """    const auto synchronous_queue_submits = Settings::values.async_
     // Maximize concurrency to improve shader compilation performance.
     const VkBool32 maximize_concurrent_compilation = VK_TRUE;""")
 
+
+# ---- 2n. caches and logs that survive iOS closing the app ----
+# Azahar saves the driver pipeline cache only when a game shuts down cleanly, and writes its log
+# file only on errors or at exit. On a phone the app is usually swiped away or killed in the
+# background instead: every session compiled its pipelines again (hitches in the first minutes),
+# and the last minutes of the log (the Perf lines) were lost.
+BH = "src/common/logging/backend.h"
+edit(BH, """/// Explictily stops the logger thread and flushes the buffers
+void Stop();
+""", """/// Explictily stops the logger thread and flushes the buffers
+void Stop();
+
+/// HINOKI: writes what the backends hold to disk now (the app may be killed without Stop)
+void Flush();
+""")
+BC = "src/common/logging/backend.cpp"
+edit(BC, """    static void Stop() {
+        instance->StopBackendThread();
+    }
+""", """    static void Stop() {
+        instance->StopBackendThread();
+    }
+
+    static void FlushBackends() { // HINOKI
+        if (instance) {
+            instance->ForEachBackend([](Backend& backend) { backend.Flush(); });
+        }
+    }
+""")
+edit(BC, """void Stop() {
+    if (logging_initialized) {
+        Impl::Stop();
+    }
+}
+""", """void Stop() {
+    if (logging_initialized) {
+        Impl::Stop();
+    }
+}
+
+void Flush() { // HINOKI
+    if (logging_initialized) {
+        Impl::FlushBackends();
+    }
+}
+""")
+RI = "src/video_core/rasterizer_interface.h"
+edit(RI, """    virtual void SwitchDiskResources([[maybe_unused]] u64 title_id) {}
+""", """    virtual void SwitchDiskResources([[maybe_unused]] u64 title_id) {}
+
+    /// HINOKI: saves what is only written at shutdown (the Vulkan driver's pipeline cache)
+    virtual void SaveDiskResources() {}
+""")
+VRH = "src/video_core/renderer_vulkan/vk_rasterizer.h"
+edit(VRH, """    void SwitchDiskResources(u64 title_id) override;
+""", """    void SwitchDiskResources(u64 title_id) override;
+    void SaveDiskResources() override { pipeline_cache.HinokiSaveDriverCache(); } // HINOKI
+""")
+VPH = "src/video_core/renderer_vulkan/vk_pipeline_cache.h"
+edit(VPH, """    void SaveDriverPipelineDiskCache();
+""", """    void SaveDriverPipelineDiskCache();
+
+public:
+    /// HINOKI: once the compiles in flight are done (called while the game is paused)
+    void HinokiSaveDriverCache() {
+        pipeline_workers.WaitForRequests();
+        shader_workers.WaitForRequests();
+        SaveDriverPipelineDiskCache();
+    }
+
+private:
+""")
+
 print("Azahar prepared for Hinoki")

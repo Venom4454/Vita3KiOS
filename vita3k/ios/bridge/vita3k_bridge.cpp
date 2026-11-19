@@ -1733,6 +1733,7 @@ bool v3k_import_save_data_auto(const char *path, char **message) {
 namespace {
 
 constexpr const char *PATCH_REPO_ZIP = "https://codeload.github.com/Vita3K/vita3k-patches/zip/refs/heads/main";
+constexpr const char *PATCH_REPO_ZIP_FALLBACK = "https://github.com/Vita3K/vita3k-patches/archive/refs/heads/main.zip";
 
 std::string zip_entry_text(const std::string &zip_data, const std::string &suffix) {
     mz_zip_archive zip{};
@@ -1775,7 +1776,16 @@ bool v3k_download_patches(char **message) {
         return result(false, "The emulator is not ready.");
 
     std::string zip_data, error;
-    if (!ios::download(PATCH_REPO_ZIP, zip_data, error) || zip_data.empty()) {
+    bool downloaded = ios::download(PATCH_REPO_ZIP, zip_data, error) && !zip_data.empty();
+    if (!downloaded) {
+        // codeload.github.com unreachable on some networks: the same archive from github.com
+        std::string second_error;
+        zip_data.clear();
+        downloaded = ios::download(PATCH_REPO_ZIP_FALLBACK, zip_data, second_error) && !zip_data.empty();
+        if (!downloaded)
+            error += " / " + second_error;
+    }
+    if (!downloaded) {
         LOG_ERROR("Patch and cheat download failed: {}", error);
         return result(false, "Could not download patches and cheats (" + error + "). Check your connection and try again.");
     }
@@ -1961,9 +1971,11 @@ bool v3k_import_mod(const char *title_id, const char *zip_path, char **message) 
     };
     if (!emuenv || !title_id || !zip_path)
         return result(false, "This game is not installed.");
+    std::error_code dir_ec;
+    const bool is_folder = fs::is_directory(fs_utils::utf8_to_path(zip_path), dir_ec);
     mz_zip_archive zip{};
-    if (!mz_zip_reader_init_file(&zip, zip_path, 0))
-        return result(false, "That file is not a zip archive.");
+    if (!is_folder && !mz_zip_reader_init_file(&zip, zip_path, 0))
+        return result(false, "That file is not a zip archive or a folder.");
 
     const std::string id = title_id;
     const fs::path target = mod_folder(*emuenv, id, true);
@@ -1987,6 +1999,28 @@ bool v3k_import_mod(const char *title_id, const char *zip_path, char **message) 
 
     int written = 0;
     bool ok = true;
+    if (is_folder) {
+        // A folder picked as it is: the same wrappers are stripped from each file's path inside it
+        const fs::path source = fs_utils::utf8_to_path(zip_path);
+        for (auto it = fs::recursive_directory_iterator(source, ec); ok && !ec && it != fs::recursive_directory_iterator(); it.increment(ec)) {
+            if (!it->is_regular_file(ec))
+                continue;
+            std::string name = fs_utils::path_to_utf8(fs::relative(it->path(), source, ec));
+            std::replace(name.begin(), name.end(), '\\', '/');
+            const std::string entry = relative_name(name);
+            const std::string file_name = fs_utils::path_to_utf8(it->path().filename());
+            if (entry.empty() || entry.find("..") != std::string::npos || entry.starts_with("__MACOSX") || file_name == ".DS_Store")
+                continue;
+            const fs::path out = target / fs_utils::utf8_to_path(entry);
+            fs::create_directories(out.parent_path(), ec);
+            ok = fs::copy_file(it->path(), out, fs::copy_options::overwrite_existing, ec) && !ec;
+            written += ok ? 1 : 0;
+        }
+        LOG_INFO("Installed a mod for {} from a folder: {} files", id, written);
+        if (!ok || written == 0)
+            return result(false, written == 0 ? "That folder has no files." : "Some files of the mod could not be copied.");
+        return result(true, fmt::format("Mod installed ({} files). It applies the next time the game starts.", written));
+    }
     const mz_uint count = mz_zip_reader_get_num_files(&zip);
     for (mz_uint i = 0; ok && i < count; i++) {
         if (mz_zip_reader_is_file_a_directory(&zip, i))
@@ -2006,6 +2040,50 @@ bool v3k_import_mod(const char *title_id, const char *zip_path, char **message) 
     if (!ok)
         return result(false, "Some files of the mod could not be extracted.");
     return result(true, fmt::format("Mod installed ({} files). It applies the next time the game starts.", written));
+}
+
+// A cheat or patch file the player brings: copied next to the downloaded ones, named so the game's
+// title ID starts it (cheats) or is in it (patches), which is how the loaders find them
+static bool import_title_file(const char *title_id, const char *path, const char *extension, const fs::path &dir, const char *what, char **message) {
+    const auto result = [&](bool ok, const std::string &text) {
+        if (message)
+            *message = dup_string(text);
+        return ok;
+    };
+    if (!title_id || !path)
+        return result(false, "This game is not installed.");
+    const fs::path source = fs_utils::utf8_to_path(path);
+    std::string ext = fs_utils::path_to_utf8(source.extension());
+    std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
+    if (ext != extension)
+        return result(false, fmt::format("A {} file ends in {}.", what, extension));
+    const std::string id = title_id;
+    std::string stem = fs_utils::path_to_utf8(source.stem());
+    std::string upper = stem;
+    std::transform(upper.begin(), upper.end(), upper.begin(), ::toupper);
+    const std::string name = upper.starts_with(id) ? stem : id + "_" + stem;
+    std::error_code ec;
+    fs::create_directories(dir, ec);
+    const fs::path target = dir / fs_utils::utf8_to_path(name + extension);
+    fs::copy_file(source, target, fs::copy_options::overwrite_existing, ec);
+    if (ec)
+        return result(false, fmt::format("The {} file couldn't be copied: {}", what, ec.message()));
+    LOG_INFO("Imported a {} file for {}: {}", what, id, target.string());
+    return result(true, fmt::format("{} file added as {}. It applies the next time the game starts.", what[0] == 'c' ? "Cheat" : "Patch", fs_utils::path_to_utf8(target.filename())));
+}
+
+bool v3k_import_cheat_file(const char *title_id, const char *path, char **message) {
+    auto *emuenv = ios::get_emuenv();
+    if (!emuenv)
+        return false;
+    return import_title_file(title_id, path, ".psv", emuenv->patch_path / "cheats" / "imported", "cheat", message);
+}
+
+bool v3k_import_patch_file(const char *title_id, const char *path, char **message) {
+    auto *emuenv = ios::get_emuenv();
+    if (!emuenv)
+        return false;
+    return import_title_file(title_id, path, ".txt", emuenv->patch_path, "patch", message);
 }
 
 bool v3k_set_mods_enabled(const char *title_id, bool enabled) {

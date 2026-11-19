@@ -67,13 +67,24 @@ struct ModInfo: Codable {
 }
 
 /// What the shared zip picker is choosing a file for
-private enum ZipImport: Identifiable {
-    case save, mod, content
-    var id: Int {
+private enum ZipImport {
+    case save, mod, content, cheat, patch
+
+    var types: [UTType] {
         switch self {
-        case .save: 0
-        case .mod: 1
-        case .content: 2
+        case .save, .mod: [.zip, .folder]
+        case .content: [.item, .folder]
+        case .cheat, .patch: [.item]
+        }
+    }
+
+    var purpose: HinokiFilePicker.Purpose {
+        switch self {
+        case .save: .save
+        case .mod: .mod
+        case .content: .install
+        case .cheat: .cheat
+        case .patch: .patch
         }
     }
 }
@@ -95,7 +106,8 @@ struct GameSettingsView: View {
     @State private var shaderCacheBytes: Double = 0
     @State private var message: String?
     @State private var exportedSave: URL?
-    @State private var zipImport: ZipImport?
+    @State private var zipImport: ZipImport = .content
+    @State private var importing = false
     @State private var cheats: [GameCheat] = []
     @State private var cheatsDownloaded = false
     @State private var showUnsupportedCheats = false
@@ -131,14 +143,14 @@ struct GameSettingsView: View {
                 ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
             }
             .onAppear(perform: load)
-            .fileImporter(isPresented: Binding(get: { zipImport != nil }, set: { if !$0 { zipImport = nil } }), allowedContentTypes: zipImport == .save ? [.zip, .folder] : (zipImport == .content ? [.item, .folder] : [.zip])) { result in
+            .hinokiImporter(isPresented: $importing, types: zipImport.types, purpose: zipImport.purpose) { urls in
+                guard let url = urls.first else { return }
                 let kind = zipImport
-                zipImport = nil
-                guard case let .success(url) = result, let kind else { return }
                 if kind == .content {
                     // updates and DLC go through the library's installer (.pkg with the game's license, .vpk, .zip, folders)
-                    model.enqueue([url])
+                    model.enqueue(urls)
                     DispatchQueue.main.asyncAfter(deadline: .now() + 3) { load() }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 10) { load() }
                     return
                 }
                 let access = url.startAccessingSecurityScopedResource()
@@ -147,6 +159,8 @@ struct GameSettingsView: View {
                 switch kind {
                 case .save: _ = v3k_import_save_data(app.titleId, url.path, &text)
                 case .mod: _ = v3k_import_mod(app.titleId, url.path, &text)
+                case .cheat: _ = v3k_import_cheat_file(app.titleId, url.path, &text)
+                case .patch: _ = v3k_import_patch_file(app.titleId, url.path, &text)
                 case .content: break
                 }
                 message = takeString(text)
@@ -375,10 +389,16 @@ struct GameSettingsView: View {
                 }
             }
             downloadButton
+            Button {
+                zipImport = .patch
+                importing = true
+            } label: {
+                Label("Import a patch file (.txt)", systemImage: "doc.badge.plus")
+            }
         } header: {
             Text("Patches")
         } footer: {
-            Text("Patches come from github.com/Vita3K/vita3k-patches and apply the next time the game starts.")
+            Text("Patches come from github.com/Vita3K/vita3k-patches and apply the next time the game starts. An imported patch file (Vita3K's .txt format) is always on; delete it from Files › Hinoki › patch to turn it off.")
         }
     }
 
@@ -388,6 +408,7 @@ struct GameSettingsView: View {
             LabeledContent("DLC", value: content.dlc == 0 ? "None" : "\(content.dlc) · \(size(content.dlcBytes))")
             Button {
                 zipImport = .content
+                importing = true
             } label: {
                 Label("Install update or DLC", systemImage: "arrow.down.app")
             }
@@ -463,6 +484,12 @@ struct GameSettingsView: View {
                 Toggle("Show \(unsupported) unsupported cheat\(unsupported == 1 ? "" : "s")", isOn: $showUnsupportedCheats)
                     .font(.footnote)
             }
+            Button {
+                zipImport = .cheat
+                importing = true
+            } label: {
+                Label("Import a cheat file (.psv)", systemImage: "doc.badge.plus")
+            }
         } header: {
             Text(cheats.isEmpty ? "Cheats" : "Cheats (\(cheats.filter(\.supported).count))")
         } footer: {
@@ -486,8 +513,9 @@ struct GameSettingsView: View {
             }
             Button {
                 zipImport = .mod
+                importing = true
             } label: {
-                Label("Install mod (.zip)", systemImage: "puzzlepiece.extension")
+                Label("Install mod (zip or folder)", systemImage: "puzzlepiece.extension")
             }
             if mod.files > 0 {
                 Button(role: .destructive) { confirmDeleteMods = true } label: {
@@ -523,6 +551,7 @@ struct GameSettingsView: View {
             }
             Button {
                 zipImport = .save
+                importing = true
             } label: {
                 Label("Import save data (zip or folder)", systemImage: "square.and.arrow.down")
             }

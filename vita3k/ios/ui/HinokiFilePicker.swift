@@ -3,6 +3,8 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 import SwiftUI
+import UIKit
+import UniformTypeIdentifiers
 
 /// Hinoki's own file picker, for its folder in the Files app (On My iPhone › Hinoki, or the app's
 /// folder in LiveContainer). The system picker doesn't open, or gives back files that can't be read,
@@ -11,7 +13,8 @@ import SwiftUI
 /// computer (Finder / iTunes file sharing).
 struct HinokiFilePicker: View {
     /// What the picked files are for: shapes the hint and which files are marked as usable
-    enum Purpose { case install, plugin, keys }
+    /// (mod and save also take folders: tick one, or open it and tap "Use this folder")
+    enum Purpose { case install, plugin, keys, mod, save, cheat, patch }
 
     var purpose: Purpose = .install
     let onPick: ([URL]) -> Void
@@ -68,7 +71,7 @@ struct HinokiFilePicker: View {
                     }
                 }
             }
-            .navigationTitle(purpose == .plugin ? "Pick plugins" : purpose == .keys ? "Pick keys" : "Pick files")
+            .navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -76,12 +79,20 @@ struct HinokiFilePicker: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button(selection.isEmpty ? (purpose == .install ? "Install" : "Add") : "\(purpose == .install ? "Install" : "Add") (\(selection.count))") {
-                        let picked = Array(selection)
-                        dismiss()
-                        // after the sheet is gone, so the install overlay and alerts can show
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { onPick(picked) }
+                        finish(Array(selection))
                     }
                     .disabled(selection.isEmpty)
+                }
+                if takesFolders && directory.standardizedFileURL != Self.root.standardizedFileURL {
+                    // "the folder I'm in is the mod": the load folder, a title ID folder, a romfs' parent...
+                    ToolbarItem(placement: .bottomBar) {
+                        Button {
+                            finish([directory])
+                        } label: {
+                            Label("Use this folder (\(directory.lastPathComponent))", systemImage: "checkmark.circle.fill")
+                        }
+                        .buttonStyle(.borderedProminent)
+                    }
                 }
             }
             .refreshable { load() }
@@ -92,8 +103,36 @@ struct HinokiFilePicker: View {
         }
     }
 
+    private var takesFolders: Bool { purpose == .mod || purpose == .save }
+
+    private var title: String {
+        switch purpose {
+        case .plugin: return "Pick plugins"
+        case .keys: return "Pick keys"
+        case .mod: return "Pick a mod"
+        case .save: return "Pick a save"
+        case .cheat: return "Pick a cheat file"
+        case .patch: return "Pick a patch file"
+        case .install: return "Pick files"
+        }
+    }
+
+    private func finish(_ picked: [URL]) {
+        dismiss()
+        // after the sheet is gone, so the install overlay and alerts can show
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { onPick(picked) }
+    }
+
     private var hint: String {
         switch purpose {
+        case .mod:
+            return "Put the mod in Hinoki's folder (Files app › On My iPhone › Hinoki, the Import folder is a good spot): a .zip, or its folder. Tick the folder, or open it and tap \"Use this folder\". The mod's own wrappers (load, mods, luma, titles, a title ID folder, rePatch) are fine: Hinoki finds the files inside. 3DS code patches (.ips, .bps) work too."
+        case .save:
+            return "Put the save (a .zip or its folder) in Hinoki's folder (Files app › On My iPhone › Hinoki › Import). Tick it, or open the folder and tap \"Use this folder\"."
+        case .cheat:
+            return "Put the cheat file (3DS: .txt in Azahar / Citra format; Vita: VitaCheat .psv) in Hinoki's folder (Files app › On My iPhone › Hinoki › Import), then pick it here."
+        case .patch:
+            return "Put the patch file (.txt, Vita3K patch format) in Hinoki's folder (Files app › On My iPhone › Hinoki › Import), then pick it here."
         case .install:
             return "Put games (.vpk, .zip, .pkg, 3DS .3ds/.cci/.cia/.3dsx), firmware (.PUP), licenses (work.bin, .rif, .zrif), plugins or game folders in Hinoki's folder (Files app › On My iPhone › Hinoki, the Import folder is a good spot), then pick them here. Tap a folder to open it; tick it to install everything in it."
         case .plugin:
@@ -203,8 +242,18 @@ struct HinokiFilePicker: View {
             case .keys:
                 let name = url.lastPathComponent.lowercased()
                 usable = name == "seeddb.bin" || name.hasSuffix(".txt")
+            case .mod:
+                let ext = url.pathExtension.lowercased()
+                usable = isFolder || ext == "zip" || ext == "ips" || ext == "bps"
+            case .save:
+                usable = isFolder || url.pathExtension.lowercased() == "zip"
+            case .cheat:
+                let ext = url.pathExtension.lowercased()
+                usable = !isFolder && (ext == "txt" || ext == "psv")
+            case .patch:
+                usable = !isFolder && url.pathExtension.lowercased() == "txt"
             }
-            list.append(Entry(url: url, isFolder: isFolder, isGameFolder: isGame, size: Int64(values?.fileSize ?? 0),
+            list.append(Entry(url: url, isFolder: isFolder, isGameFolder: isGame && purpose == .install, size: Int64(values?.fileSize ?? 0),
                               usable: purpose == .install ? (usable || isFolder) : usable))
         }
         // Import first, then folders, then files, each by name
@@ -213,5 +262,95 @@ struct HinokiFilePicker: View {
             if rank(a) != rank(b) { return rank(a) < rank(b) }
             return a.name.localizedStandardCompare(b.name) == .orderedAscending
         }
+    }
+}
+
+// MARK: - Importing for a game's page
+
+/// The system document picker, presented by UIKit. SwiftUI's .fileImporter only works once per branch of
+/// views: a game's page has several (update, mod, save, cheats), and the inner ones never opened.
+private struct SystemDocumentPicker: UIViewControllerRepresentable {
+    let types: [UTType]
+    let multiple: Bool
+    let onPick: ([URL]) -> Void
+    let onCancel: () -> Void
+
+    func makeCoordinator() -> Coordinator { Coordinator(onPick: onPick, onCancel: onCancel) }
+
+    func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
+        let picker = UIDocumentPickerViewController(forOpeningContentTypes: types, asCopy: false)
+        picker.allowsMultipleSelection = multiple
+        picker.delegate = context.coordinator
+        return picker
+    }
+
+    func updateUIViewController(_ controller: UIDocumentPickerViewController, context: Context) {}
+
+    final class Coordinator: NSObject, UIDocumentPickerDelegate {
+        let onPick: ([URL]) -> Void
+        let onCancel: () -> Void
+        init(onPick: @escaping ([URL]) -> Void, onCancel: @escaping () -> Void) {
+            self.onPick = onPick
+            self.onCancel = onCancel
+        }
+        func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) { onPick(urls) }
+        func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) { onCancel() }
+    }
+}
+
+/// Picks files (or folders) for one of a game's imports: the system picker, or Hinoki's own when that is
+/// preferred (Settings, as the library does) or when the system picker hands back something unreadable
+/// (some developer-certificate installs and LiveContainer).
+private struct HinokiImporter: ViewModifier {
+    @Binding var isPresented: Bool
+    let types: [UTType]
+    let multiple: Bool
+    let purpose: HinokiFilePicker.Purpose
+    let onPick: ([URL]) -> Void
+
+    @AppStorage("v3k.builtInPicker") private var preferBuiltInPicker = false
+    @State private var showingSystem = false
+    @State private var showingBuiltIn = false
+
+    func body(content: Content) -> some View {
+        content
+            .onChange(of: isPresented) { _, requested in
+                guard requested else { return }
+                isPresented = false
+                if preferBuiltInPicker { showingBuiltIn = true } else { showingSystem = true }
+            }
+            .sheet(isPresented: $showingSystem) {
+                SystemDocumentPicker(types: types, multiple: multiple, onPick: { urls in
+                    showingSystem = false
+                    let readable = urls.filter(Self.readable)
+                    if urls.isEmpty || readable.count < urls.count {
+                        v3k_log_ui("Import: the system picker gave back \(urls.count) item(s), \(readable.count) readable; opening Hinoki's picker")
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { showingBuiltIn = true }
+                        return
+                    }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { onPick(readable) }
+                }, onCancel: { showingSystem = false })
+                .ignoresSafeArea()
+            }
+            .sheet(isPresented: $showingBuiltIn) {
+                HinokiFilePicker(purpose: purpose, onPick: onPick)
+            }
+    }
+
+    private static func readable(_ url: URL) -> Bool {
+        let access = url.startAccessingSecurityScopedResource()
+        defer { if access { url.stopAccessingSecurityScopedResource() } }
+        var isFolder: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isFolder) else { return false }
+        return isFolder.boolValue ? (try? FileManager.default.contentsOfDirectory(atPath: url.path)) != nil
+                                  : FileManager.default.isReadableFile(atPath: url.path)
+    }
+}
+
+extension View {
+    /// One of a game's imports (see HinokiImporter)
+    func hinokiImporter(isPresented: Binding<Bool>, types: [UTType], multiple: Bool = false,
+                        purpose: HinokiFilePicker.Purpose, onPick: @escaping ([URL]) -> Void) -> some View {
+        modifier(HinokiImporter(isPresented: isPresented, types: types, multiple: multiple, purpose: purpose, onPick: onPick))
     }
 }
