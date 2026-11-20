@@ -230,8 +230,10 @@ void sync_visibility_index(VKContext &context, bool enable, uint32_t index, bool
     }
 
     if (index >= context.current_visibility_buffer->size) {
-        LOG_WARN_ONCE("Using visibility index {} which is too big for the buffer", index);
-        index = 0;
+        // Killzone sets 0xDEADBEEF: a marker for "no query", not a slot. Sending it to slot 0 overwrote the
+        // result the game reads for its first query (occlusion-tested effects popping or flickering)
+        LOG_WARN_ONCE("Using visibility index {} which is too big for the buffer: no query for these draws", index);
+        enable = false;
     }
 
     if (!enable) {

@@ -57,3 +57,12 @@ PCSE00305 fast-cpu=off high-accuracy=off | Exact floating point: clean voice lin
 
 # Borderlands 2: high accuracy only slows it down
 PCSE00383 high-accuracy=off | High accuracy off: faster, nothing it draws needs it
+# Soul Sacrifice Delta: the character on the customisation screen draws solid white (fast maths turning lighting into NaN, as Persona 4's white ground). Leading guess, untested
+PCSA00152 precise-math=on | Precise shader math: for the solid white character on the customisation screen
+PCSF00532 precise-math=on | Precise shader math: for the solid white character on the customisation screen
+PCSD00079 precise-math=on | Precise shader math: for the solid white character on the customisation screen
+PCSC00049 precise-math=on | Precise shader math: for the solid white character on the customisation screen
+# Ninja Gaiden Sigma 2 Plus: black screen at launch (also on Android). Leading guess, as LittleBigPlanet's GPU loss at boot with double-buffer mapping; untested
+PCSE00233 memory-mapping=off | GPU memory mapping off: for the black screen at launch
+PCSB00294 memory-mapping=off | GPU memory mapping off: for the black screen at launch
+PCSG00157 memory-mapping=off | GPU memory mapping off: for the black screen at launch

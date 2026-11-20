@@ -33,6 +33,8 @@ enum N3DSSettings {
         "use_cpu_jit": "1", "volume": "1", "filter_mode": "1", "texture_filter": "0",
         "enable_audio_stretching": "1", "shaders_accurate_mul": "0", "custom_textures": "0",
         "async_presentation": "1", "disable_right_eye_render": "1", "match_display": "1", "use_shader_jit": "1",
+        // 30 FPS games present every frame twice otherwise (Azahar on Android has it on by default)
+        "use_skip_duplicate_frames": "1",
     ]
 
     static func value(_ key: String) -> String {

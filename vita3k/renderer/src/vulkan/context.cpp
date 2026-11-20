@@ -137,6 +137,8 @@ void VKState::wait_thread_function(const MemState &mem) {
 }
 
 void set_context(VKContext &context, MemState &mem, VKRenderTarget *rt, const FeatureState &features) {
+    // a new scene: textures are checked for changes again (once each, see TextureCacheInfo::hashed_epoch)
+    context.state.texture_cache.hash_epoch++;
     context.render_target = rt;
     context.scene_timestamp++;
     context.gxm_scene_id++;
