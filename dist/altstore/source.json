@@ -12,6 +12,15 @@
       "bundleIdentifier": "org.vita3k.ios",
       "versions": [
         {
+          "version": "1.6.1",
+          "buildVersion": "279",
+          "date": "2026-11-20T17:44:36Z",
+          "localizedDescription": "Hinoki 1.6.1\n\nFixes\n- RAM helpers work again in LiveContainer with Helper Process Support on: LiveContainer's newer helper support (from 15 Nov 2026) was taken for \"option off\", and Hinoki never started the helpers\n- If Hinoki ever can't tell whether your container supports helpers, it now tries once instead of refusing\n- A leftover development script is no longer packaged in the app\n\n\n## Install\n- **AltStore / SideStore:** add the source `https://raw.githubusercontent.com/oledz-i/Hinoki/main/dist/altstore/source.json` to get updates in-app.\n- **LiveContainer / TrollStore / other signers:** download `Hinoki-1.6.1.ipa` below.\n\nBuild 279, commit e58f91b.",
+          "downloadURL": "https://github.com/oledz-i/Hinoki/releases/download/v1.6.1/Hinoki-1.6.1.ipa",
+          "size": 25960621,
+          "minOSVersion": "17.4"
+        },
+        {
           "version": "1.6.0",
           "buildVersion": "277",
           "date": "2026-11-20T11:56:06Z",
@@ -145,11 +154,11 @@
         ],
         "privacy": {}
       },
-      "version": "1.6.0",
-      "versionDate": "2026-11-20T11:56:06Z",
-      "versionDescription": "Hinoki 1.6.0\n\nNew: Nintendo 3DS\n- Nintendo 3DS games, built on the Azahar core: on the home screen next to PS Vita games; .3ds, .cci, .cia and .3dsx files and zips of them; keys import; Old and New 3DS modes\n- Controls made to be held: slide your thumb across A B X Y (between two buttons presses both), Edit controls to move and resize them, a layout picker with side-by-side and controls-below layouts, a floating Circle Pad\n- Fast forward, save states, and the iOS keyboard for games' text prompts\n- On each game's page: updates and DLC, cheats, mods (zip, folder or code patch), save import and export (Checkpoint / JKSM), artwork from libretro and SteamGridDB, names and details\n- Performance: shapes Metal can't draw directly now run on the GPU, shader JIT, frame pacing matched to the screen, performance cores, compiled shaders kept between sessions, repeated frames of 30 FPS games skipped\n- Foldables and resizable windows: the two screens meet at the fold\n\nPS Vita\n- Faster busy 3D scenes: textures are checked for changes once per scene instead of at every draw\n- No more slowdown in games that use thousands of textures (four times the texture slots)\n- Graphics: depth sampling fixes, vertex clip planes, wide strided textures, occlusion queries, native PVRTC textures\n- PS TV mode: on-screen L2, R2, L3 and R3 work, the setting is no longer overridden by per-game settings, and the touch controls stay player 1 with a controller connected\n- Controls: floating sticks, screen-half sticks, touch reach, macro buttons, a to-scale PS Vita button map\n- Game threads: precise timers, busy threads kept on the performance cores, gentler when the phone is hot\n- Plugins: built-in kubridge for ports, plugin manager\n- Game fixes download from a mirror when GitHub can't be reached, and the important ones are built in\n- Fixes from upstream Vita3K: creating save data, a loading hang, guest call stack alignment and more\n\nBoth\n- Imports from a game's page work again (updates, mods, saves, cheats, patches) with Apple's file picker or Hinoki's own, folders included\n- Import your own cheat (.psv) and patch (.txt) files for PS Vita games\n- Menus in Spanish, French, German, Italian, Portuguese (Brazil), Chinese (Simplified) and Japanese, following the iPhone's language\n- Cloud saves through iCloud Drive; settings reorganized\n- Other apps' videos and the camera work while Hinoki is open\n\n\n## Install\n- **AltStore / SideStore:** add the source `https://raw.githubusercontent.com/oledz-i/Hinoki/main/dist/altstore/source.json` to get updates in-app.\n- **LiveContainer / TrollStore / other signers:** download `Hinoki-1.6.0.ipa` below.\n\nBuild 277, commit 2a0c814.",
-      "downloadURL": "https://github.com/oledz-i/Hinoki/releases/download/v1.6.0/Hinoki-1.6.0.ipa",
-      "size": 25963576
+      "version": "1.6.1",
+      "versionDate": "2026-11-20T17:44:36Z",
+      "versionDescription": "Hinoki 1.6.1\n\nFixes\n- RAM helpers work again in LiveContainer with Helper Process Support on: LiveContainer's newer helper support (from 15 Nov 2026) was taken for \"option off\", and Hinoki never started the helpers\n- If Hinoki ever can't tell whether your container supports helpers, it now tries once instead of refusing\n- A leftover development script is no longer packaged in the app\n\n\n## Install\n- **AltStore / SideStore:** add the source `https://raw.githubusercontent.com/oledz-i/Hinoki/main/dist/altstore/source.json` to get updates in-app.\n- **LiveContainer / TrollStore / other signers:** download `Hinoki-1.6.1.ipa` below.\n\nBuild 279, commit e58f91b.",
+      "downloadURL": "https://github.com/oledz-i/Hinoki/releases/download/v1.6.1/Hinoki-1.6.1.ipa",
+      "size": 25960621
     }
   ]
 }
