@@ -7,6 +7,7 @@ _azh_init
 _azh_install_cia
 _azh_installed_title_path
 _azh_installed_titles
+_azh_keyboard_result
 _azh_load_state
 _azh_perf
 _azh_running

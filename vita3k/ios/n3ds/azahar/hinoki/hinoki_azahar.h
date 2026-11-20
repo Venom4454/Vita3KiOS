@@ -14,7 +14,7 @@
 extern "C" {
 #endif
 
-#define AZH_API_VERSION 2
+#define AZH_API_VERSION 3
 
 // What Hinoki lends the core
 typedef struct azh_host {
@@ -74,6 +74,9 @@ enum azh_event {
     AZH_EVENT_STOPPED = 4, // a = Azahar's result (0 normal exit); the last event of a session
     AZH_EVENT_STATE = 5,   // a save state: a = 0 saved / 1 loaded, b = slot; text NULL when it
                            // worked, otherwise what went wrong
+    AZH_EVENT_KEYBOARD = 6, // the game wants text (naming, typing): text is the request as JSON, the
+                            // answer goes back through azh_keyboard_result. Asked again (with an
+                            // "error") when the game doesn't accept the answer. The game keeps running
 };
 typedef void (*azh_event_fn)(void *context, int kind, int a, int b, const char *text);
 bool azh_boot(const char *path, void *layer, int width, int height, float scale, bool portrait,
@@ -95,6 +98,11 @@ bool azh_load_state(int slot);
 // The running game's save states: [{"slot":n,"time":unix seconds,"ok":bool}] (ok false: made by a
 // different build, may not load). Free with azh_free
 char *azh_save_states_json(void);
+
+// The answer to AZH_EVENT_KEYBOARD: the text and which button was pressed (0 left, 1 middle, 2 right
+// for three buttons; 0 Cancel, 1 Ok for two; 0 for one). Any thread; the emulation thread hands it to
+// the game between two frames.
+void azh_keyboard_result(const char *text, int button);
 
 // Input. Buttons as a bit mask:
 enum azh_button {

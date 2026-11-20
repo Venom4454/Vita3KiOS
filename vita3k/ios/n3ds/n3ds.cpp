@@ -80,6 +80,7 @@ struct Core {
     AZH_FN(azh_save_state);
     AZH_FN(azh_load_state);
     AZH_FN(azh_save_states_json);
+    AZH_FN(azh_keyboard_result);
 #undef AZH_FN
 };
 
@@ -254,6 +255,7 @@ bool load_core() {
         AZH_BIND(azh_save_state);
         AZH_BIND(azh_load_state);
         AZH_BIND(azh_save_states_json);
+        AZH_BIND(azh_keyboard_result);
 #undef AZH_BIND
         if (!complete || g_core.azh_api_version() != AZH_API_VERSION) {
             g_core.error = "The 3DS core in this build doesn't match the app.";
@@ -1033,6 +1035,11 @@ bool v3k_n3ds_running(void) {
 void v3k_n3ds_perf(double *fps, double *speed) {
     if (g_core.handle)
         g_core.azh_perf(fps, speed);
+}
+
+void v3k_n3ds_keyboard_result(const char *text, int button) {
+    if (g_core.handle)
+        g_core.azh_keyboard_result(text, button);
 }
 
 void v3k_n3ds_set_buttons(uint32_t mask) {

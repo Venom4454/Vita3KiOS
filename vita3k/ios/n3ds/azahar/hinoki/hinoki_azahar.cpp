@@ -11,9 +11,11 @@
 #include <limits>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <thread>
 #include <tuple>
+#include <utility>
 #include <vector>
 
 #include <fmt/format.h>
@@ -33,6 +35,7 @@
 #include "core/core.h"
 #include "core/core_timing.h"
 #include "core/frontend/applets/default_applets.h"
+#include "core/frontend/applets/swkbd.h"
 #include "core/frontend/emu_window.h"
 #include "core/frontend/input.h"
 #include "core/hle/service/am/am.h"
@@ -195,6 +198,173 @@ void SetUpInputProfile() {
     profile.touch_device = "engine:emu_window";
     profile.use_touch_from_button = false;
     profile.use_touchpad = false;
+}
+
+// ---- The 3DS software keyboard: the game asks for text, Hinoki shows iOS's own keyboard ----
+// The core calls Execute on the emulation thread when a game opens its keyboard (naming a Mii, a save
+// file, a message). It tells Hinoki (AZH_EVENT_KEYBOARD, the request as JSON) and returns at once: the
+// game keeps running behind the prompt. The answer comes back through azh_keyboard_result on any
+// thread; the emulation thread gives it to the applet between two frames, so the applet's state is
+// only ever touched there.
+std::mutex g_keyboard_mutex;
+azh_event_fn g_keyboard_events = nullptr;
+void* g_keyboard_context = nullptr;
+struct KeyboardAnswer {
+    std::string text;
+    int button = 0;
+};
+std::optional<KeyboardAnswer> g_keyboard_answer;
+std::atomic<bool> g_keyboard_answered{false};
+
+std::string KeyboardErrorText(Frontend::ValidationError error, unsigned max_length) {
+    using Frontend::ValidationError;
+    switch (error) {
+    case ValidationError::MaxDigitsExceeded:
+        return "There are too many digits.";
+    case ValidationError::AtSignNotAllowed:
+        return "The @ sign can't be used here.";
+    case ValidationError::PercentNotAllowed:
+        return "The % sign can't be used here.";
+    case ValidationError::BackslashNotAllowed:
+        return "The \\ sign can't be used here.";
+    case ValidationError::ProfanityNotAllowed:
+    case ValidationError::CallbackFailed:
+        return "The game doesn't accept that text.";
+    case ValidationError::FixedLengthRequired:
+        return fmt::format("Enter exactly {} characters.", max_length);
+    case ValidationError::MaxLengthExceeded:
+        return fmt::format("That is too long (up to {} characters).", max_length);
+    case ValidationError::BlankInputNotAllowed:
+        return "The text can't be blank.";
+    case ValidationError::EmptyInputNotAllowed:
+        return "Enter some text first.";
+    default:
+        return "The game doesn't accept that.";
+    }
+}
+
+class HinokiKeyboard final : public Frontend::SoftwareKeyboard {
+public:
+    void Execute(const Frontend::KeyboardConfig& config_) override {
+        Frontend::SoftwareKeyboard::Execute(config_);
+        Show({}, std::exchange(pending_error, {}));
+    }
+
+    // The game's own check refused the text. It opens the keyboard again right after (Execute), and
+    // that request carries this message.
+    void ShowError(const std::string& error) override {
+        LOG_INFO(Frontend, "Keyboard: the game refused the text: {}", error);
+        pending_error = error.empty() ? std::string{"The game doesn't accept that text."} : error;
+    }
+
+    // The player's answer (emulation thread). Text the game won't take opens the keyboard again with
+    // what they typed and why.
+    void Answer(const std::string& text, int button) {
+        const auto error = Finalize(text, static_cast<u8>(std::clamp(button, 0, 2)));
+        if (error != Frontend::ValidationError::None)
+            Show(text, KeyboardErrorText(error, config.max_text_length));
+    }
+
+private:
+    void Show(const std::string& text, const std::string& message) {
+        using Frontend::ButtonConfig;
+        // button_text holds the game's own labels: left, middle, right
+        const auto label = [&](std::size_t index, const char* fallback) {
+            return json_escape(index < config.button_text.size() && !config.button_text[index].empty()
+                                   ? config.button_text[index]
+                                   : std::string{fallback});
+        };
+        std::string buttons;
+        switch (config.button_config) {
+        case ButtonConfig::Triple:
+            buttons = fmt::format(R"(["{}","{}","{}"])", label(0, Frontend::SWKBD_BUTTON_CANCEL),
+                                  label(1, Frontend::SWKBD_BUTTON_FORGOT),
+                                  label(2, Frontend::SWKBD_BUTTON_OKAY));
+            break;
+        case ButtonConfig::Dual:
+            buttons = fmt::format(R"(["{}","{}"])", label(0, Frontend::SWKBD_BUTTON_CANCEL),
+                                  label(2, Frontend::SWKBD_BUTTON_OKAY));
+            break;
+        default: // one button, or none: Ok
+            buttons = fmt::format(R"(["{}"])", label(2, Frontend::SWKBD_BUTTON_OKAY));
+            break;
+        }
+        const char* type = "normal";
+        switch (config.type) {
+        case Frontend::KeyboardType::QWERTY:
+            type = "qwerty";
+            break;
+        case Frontend::KeyboardType::NumPad:
+            type = "numpad";
+            break;
+        case Frontend::KeyboardType::Western:
+            type = "western";
+            break;
+        default:
+            break;
+        }
+        const char* accept = "anything";
+        switch (config.accept_mode) {
+        case Frontend::AcceptedInput::NotEmpty:
+            accept = "notEmpty";
+            break;
+        case Frontend::AcceptedInput::NotEmptyAndNotBlank:
+            accept = "notEmptyNotBlank";
+            break;
+        case Frontend::AcceptedInput::NotBlank:
+            accept = "notBlank";
+            break;
+        case Frontend::AcceptedInput::FixedLength:
+            accept = "fixed";
+            break;
+        default:
+            break;
+        }
+        const std::string json = fmt::format(
+            R"({{"type":"{}","buttons":{},"hint":"{}","text":"{}","error":"{}","max":{},"digits":{},)"
+            R"("multiline":{},"accept":"{}","noAt":{},"noPercent":{},"noBackslash":{}}})",
+            type, buttons, json_escape(config.hint_text), json_escape(text), json_escape(message),
+            config.max_text_length, config.filters.prevent_digit ? static_cast<int>(config.max_digits) : -1,
+            config.multiline_mode, accept, config.filters.prevent_at, config.filters.prevent_percent,
+            config.filters.prevent_backslash);
+        std::scoped_lock lock{g_keyboard_mutex};
+        if (g_keyboard_events) {
+            g_keyboard_events(g_keyboard_context, AZH_EVENT_KEYBOARD, 0, 0, json.c_str());
+        } else {
+            // Nobody to ask (the session is ending): answer with nothing so the game can go on
+            LOG_WARNING(Frontend, "Keyboard: no one to ask");
+            Finalize({}, 0);
+        }
+    }
+
+    std::string pending_error;
+};
+
+std::shared_ptr<HinokiKeyboard> g_keyboard; // the emulation thread's
+
+// Emulation thread, between two frames: the player's answer to the game
+void PumpKeyboard() {
+    if (!g_keyboard_answered.load(std::memory_order_acquire))
+        return;
+    std::optional<KeyboardAnswer> answer;
+    {
+        std::scoped_lock lock{g_keyboard_mutex};
+        answer = std::move(g_keyboard_answer);
+        g_keyboard_answer.reset();
+        g_keyboard_answered = false;
+    }
+    if (answer && g_keyboard)
+        g_keyboard->Answer(answer->text, answer->button);
+}
+
+// The session ends: nobody is listening any more
+void ReleaseKeyboard() {
+    std::scoped_lock lock{g_keyboard_mutex};
+    g_keyboard_events = nullptr;
+    g_keyboard_context = nullptr;
+    g_keyboard_answer.reset();
+    g_keyboard_answered = false;
+    g_keyboard.reset();
 }
 
 // ---- The window: a CAMetalLayer the Vulkan renderer presents to ----
@@ -363,6 +533,9 @@ void EmulationThread(std::string path, azh_event_fn events, void* context) {
     Settings::LogSettings();
 
     Frontend::RegisterDefaultApplets(system);
+    // The default keyboard answers with the 3DS user name and never shows anything: Hinoki's asks the player
+    g_keyboard = std::make_shared<HinokiKeyboard>();
+    system.RegisterSoftwareKeyboard(g_keyboard);
 
     // (the window lives until this thread has ended: no lock, so the UI thread never waits on a boot)
     Core::System::ResultStatus result = system.Load(*g_window, path);
@@ -380,6 +553,7 @@ void EmulationThread(std::string path, azh_event_fn events, void* context) {
              StatusText(result, system.GetStatusDetails()));
         system.Shutdown();
         g_running = false;
+        ReleaseKeyboard();
         send(AZH_EVENT_STOPPED, static_cast<int>(result), 0, nullptr);
         return;
     }
@@ -423,10 +597,13 @@ void EmulationThread(std::string path, azh_event_fn events, void* context) {
         int seconds = 0;
         double fps = 0, speed = 0, low_fps = 1e9;
         double svc = 0, ipc = 0, gpu = 0, swap = 0, rest = 0, frame = 0;
+        int hitches = 0; // steps of the emulated CPU that took 50 ms or more
+        double worst_ms = 0;
     } window;
     std::chrono::steady_clock::time_point state_waiting_since{};
     Core::System::ResultStatus exit_status = Core::System::ResultStatus::Success;
     bool saved_on_pause = false;
+    bool was_paused = false;
     while (!g_stop) {
         HandleStateRequest(system, events, context, state_waiting_since);
         if (g_paused) {
@@ -447,10 +624,30 @@ void EmulationThread(std::string path, azh_event_fn events, void* context) {
                 g_pause_cv.wait(lock, [] { return !g_paused || g_stop || g_state_request != 0; });
             }
             Settings::values.volume = volume;
+            was_paused = true;
             continue;
         }
         saved_on_pause = false;
+        if (was_paused) {
+            // The seconds spent paused are not slow frames: without this the first Perf line after
+            // every pause showed 1-3 FPS "lows" and a speed under 100%
+            was_paused = false;
+            (void)system.GetAndResetPerfStats();
+            last_perf = std::chrono::steady_clock::now();
+        }
+        PumpKeyboard();
+        const auto step_start = std::chrono::steady_clock::now();
         const auto status = system.RunLoop();
+        // A step that takes this long is a visible hitch (new code compiled, a shader or texture built,
+        // a pool grown...): counted in the Perf line, and the long ones get a line of their own
+        const double step_ms =
+            std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - step_start).count();
+        if (step_ms >= 50.0) {
+            window.hitches++;
+            window.worst_ms = std::max(window.worst_ms, step_ms);
+            if (step_ms >= 150.0)
+                LOG_INFO(Frontend, "Hitch: one step of the game took {:.0f} ms", step_ms);
+        }
         if (status == Core::System::ResultStatus::ShutdownRequested) {
             exit_status = status;
             break;
@@ -487,10 +684,11 @@ void EmulationThread(std::string path, azh_event_fn events, void* context) {
                 const auto ms = [&](double total) { return total / n * 1000.0; };
                 LOG_INFO(Frontend,
                          "Perf: {:.1f} FPS (lowest {:.1f}), speed {:.0f}%, per frame {:.2f} ms: "
-                         "CPU+other {:.2f}, 3DS GPU {:.2f}, present {:.2f}, services {:.2f}+{:.2f}",
+                         "CPU+other {:.2f}, 3DS GPU {:.2f}, present {:.2f}, services {:.2f}+{:.2f}, "
+                         "hitches {} (worst {:.0f} ms)",
                          window.fps / n, window.low_fps, window.speed / n, ms(window.frame),
                          ms(window.rest), ms(window.gpu), ms(window.swap), ms(window.svc),
-                         ms(window.ipc));
+                         ms(window.ipc), window.hitches, window.worst_ms);
                 window = PerfWindow{};
                 Common::Log::Flush(); // the Perf lines reach the file even if the app is killed
             }
@@ -501,6 +699,7 @@ void EmulationThread(std::string path, azh_event_fn events, void* context) {
     Settings::ResetTemporaryFrameLimit();
     system.Shutdown();
     g_running = false;
+    ReleaseKeyboard();
     send(AZH_EVENT_STOPPED, exit_status == Core::System::ResultStatus::ShutdownRequested
                                 ? 0
                                 : static_cast<int>(exit_status),
@@ -873,6 +1072,13 @@ bool azh_boot(const char* path, void* layer, int width, int height, float scale,
 
     g_stop = false;
     g_paused = false;
+    {
+        std::scoped_lock keyboard_lock{g_keyboard_mutex};
+        g_keyboard_events = events;
+        g_keyboard_context = context;
+        g_keyboard_answer.reset();
+        g_keyboard_answered = false;
+    }
     AudioCore::HinokiSinkSetRunning(true);
     g_running = true;
     g_program_id = 0;
@@ -922,6 +1128,14 @@ void azh_stop(void) {
         std::scoped_lock window_lock{g_window_mutex};
         g_window.reset();
     }).detach();
+}
+
+void azh_keyboard_result(const char* text, int button) {
+    std::scoped_lock lock{g_keyboard_mutex};
+    if (!g_keyboard_events)
+        return; // no session: nobody asked
+    g_keyboard_answer = KeyboardAnswer{text ? text : "", button};
+    g_keyboard_answered = true;
 }
 
 bool azh_running(void) {

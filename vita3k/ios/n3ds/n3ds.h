@@ -67,6 +67,8 @@ void v3k_n3ds_set_paused(bool paused);
 void v3k_n3ds_stop(void);
 bool v3k_n3ds_running(void);
 void v3k_n3ds_perf(double *fps, double *speed);
+// The answer to the game's keyboard request (event 6): the text and the button pressed
+void v3k_n3ds_keyboard_result(const char *text, int button);
 void v3k_n3ds_set_buttons(uint32_t mask);
 void v3k_n3ds_set_stick(int stick, float x, float y);
 void v3k_n3ds_touch(int phase, float x, float y);

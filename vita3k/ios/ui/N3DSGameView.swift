@@ -1594,12 +1594,94 @@ final class N3DSGameViewController: UIViewController {
                 showToast(a == 0 ? "Saved to \(slot)" : "Loaded \(slot)")
                 if N3DSSettings.haptics { UINotificationFeedbackGenerator().notificationOccurred(.success) }
             }
+        case 6:
+            if let text { showKeyboard(text) }
         default:
             break
         }
     }
 
     private var lastError: String?
+
+    // MARK: Text input (the game's own keyboard: naming a Mii, a save, a message)
+
+    /// What the game asked for (hinoki_azahar.h, AZH_EVENT_KEYBOARD)
+    fileprivate struct KeyboardRequest: Decodable {
+        let type: String
+        let buttons: [String]
+        let hint: String
+        let text: String
+        let error: String
+        let max: Int
+        /// At most this many digits, -1 when the game doesn't limit them
+        let digits: Int
+        let multiline: Bool
+        let accept: String
+        let noAt: Bool
+        let noPercent: Bool
+        let noBackslash: Bool
+    }
+
+    fileprivate var keyboardRequest: KeyboardRequest?
+    fileprivate var keyboardAlert: UIAlertController?
+
+    /// The game opened its keyboard: iOS's own keyboard on a text prompt. The game keeps running behind it;
+    /// the answer goes back with the button pressed (0 left ... the last one is Ok), and when the game
+    /// doesn't take the text (blank, too long...) it comes back here once more with the reason.
+    private func showKeyboard(_ json: String) {
+        guard let data = json.data(using: .utf8), let request = try? JSONDecoder().decode(KeyboardRequest.self, from: data), !request.buttons.isEmpty else {
+            v3k_n3ds_keyboard_result("", 0) // the game must never be left waiting
+            return
+        }
+        keyboardRequest = request
+        releaseTouchControls()
+        let alert = UIAlertController(title: request.hint.isEmpty ? L("Enter text") : request.hint,
+                                      message: request.error.isEmpty ? nil : L(request.error), preferredStyle: .alert)
+        alert.addTextField { [weak self] field in
+            field.text = request.text
+            field.delegate = self
+            field.returnKeyType = .done
+            field.clearButtonMode = .whileEditing
+            field.autocorrectionType = .no
+            field.autocapitalizationType = request.type == "numpad" ? .none : .words
+            field.smartQuotesType = .no
+            field.smartDashesType = .no
+            switch request.type {
+            case "numpad": field.keyboardType = .numberPad
+            case "qwerty", "western": field.keyboardType = .asciiCapable
+            default: field.keyboardType = .default
+            }
+        }
+        let last = request.buttons.count - 1
+        for (index, title) in request.buttons.enumerated() {
+            let cancel = last > 0 && index == 0
+            let action = UIAlertAction(title: title, style: cancel ? .cancel : .default) { [weak self] _ in
+                self?.finishKeyboard(button: index)
+            }
+            alert.addAction(action)
+            if index == last { alert.preferredAction = action }
+        }
+        let show = { [weak self] in
+            guard let self else { return }
+            keyboardAlert = alert
+            let presenter = N3DSLauncher.topController() ?? self
+            presenter.present(alert, animated: true)
+        }
+        if let old = keyboardAlert, old.presentingViewController != nil {
+            old.dismiss(animated: false, completion: show)
+        } else {
+            show()
+        }
+    }
+
+    /// The player pressed a button (or Done on the keyboard): the text and the button go to the game
+    fileprivate func finishKeyboard(button: Int, dismissing alert: UIAlertController? = nil) {
+        let text = keyboardAlert?.textFields?.first?.text ?? ""
+        keyboardAlert = nil
+        keyboardRequest = nil
+        alert?.dismiss(animated: true)
+        v3k_n3ds_keyboard_result(text, Int32(button))
+    }
 
     private func showToast(_ text: String) {
         view.subviews.filter { $0 is PaddedLabel }.forEach { $0.removeFromSuperview() }
@@ -1624,6 +1706,9 @@ final class N3DSGameViewController: UIViewController {
     private func finish(message: String?) {
         guard !finished else { return }
         finished = true
+        keyboardAlert?.dismiss(animated: false)
+        keyboardAlert = nil
+        keyboardRequest = nil
         displayLink?.invalidate()
         displayLink = nil
         motion.stopDeviceMotionUpdates()
@@ -1910,4 +1995,25 @@ final class N3DSControlEditor: UIView, UIGestureRecognizerDelegate {
 
     @objc private func cancel() { owner?.endEditingControls(save: false) }
     @objc private func done() { owner?.endEditingControls(save: true) }
+}
+
+/// The game's keyboard prompt: the game's own limits, applied while typing
+extension N3DSGameViewController: UITextFieldDelegate {
+    func textField(_ textField: UITextField, shouldChangeCharactersIn range: NSRange, replacementString string: String) -> Bool {
+        guard let request = keyboardRequest else { return true }
+        let proposed = ((textField.text ?? "") as NSString).replacingCharacters(in: range, with: string)
+        if request.noAt && string.contains("@") { return false }
+        if request.noPercent && string.contains("%") { return false }
+        if request.noBackslash && string.contains("\\") { return false }
+        // the 3DS counts UTF-16 units, like NSString
+        if request.max > 0 && (proposed as NSString).length > request.max { return false }
+        if request.digits >= 0 && proposed.filter({ $0.isASCII && $0.isWholeNumber }).count > request.digits { return false }
+        return true
+    }
+
+    func textFieldShouldReturn(_ textField: UITextField) -> Bool {
+        guard let alert = keyboardAlert, let request = keyboardRequest else { return true }
+        finishKeyboard(button: request.buttons.count - 1, dismissing: alert)
+        return false
+    }
 }
