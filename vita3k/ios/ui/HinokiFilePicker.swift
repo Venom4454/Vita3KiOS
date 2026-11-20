@@ -89,7 +89,7 @@ struct HinokiFilePicker: View {
                         Button {
                             finish([directory])
                         } label: {
-                            Label("Use this folder (\(directory.lastPathComponent))", systemImage: "checkmark.circle.fill")
+                            Label(L("Use this folder") + " (\(directory.lastPathComponent))", systemImage: "checkmark.circle.fill")
                         }
                         .buttonStyle(.borderedProminent)
                     }
@@ -107,13 +107,13 @@ struct HinokiFilePicker: View {
 
     private var title: String {
         switch purpose {
-        case .plugin: return "Pick plugins"
-        case .keys: return "Pick keys"
-        case .mod: return "Pick a mod"
-        case .save: return "Pick a save"
-        case .cheat: return "Pick a cheat file"
-        case .patch: return "Pick a patch file"
-        case .install: return "Pick files"
+        case .plugin: return L("Pick plugins")
+        case .keys: return L("Pick keys")
+        case .mod: return L("Pick a mod")
+        case .save: return L("Pick a save")
+        case .cheat: return L("Pick a cheat file")
+        case .patch: return L("Pick a patch file")
+        case .install: return L("Pick files")
         }
     }
 
@@ -126,13 +126,13 @@ struct HinokiFilePicker: View {
     private var hint: String {
         switch purpose {
         case .mod:
-            return "Put the mod in Hinoki's folder (Files app › On My iPhone › Hinoki, the Import folder is a good spot): a .zip, or its folder. Tick the folder, or open it and tap \"Use this folder\". The mod's own wrappers (load, mods, luma, titles, a title ID folder, rePatch) are fine: Hinoki finds the files inside. 3DS code patches (.ips, .bps) work too."
+            return L("Put the mod in Hinoki's folder (Files app › On My iPhone › Hinoki, the Import folder is a good spot): a .zip, or its folder. Tick the folder, or open it and tap \"Use this folder\". The mod's own wrappers (load, mods, luma, titles, a title ID folder, rePatch) are fine: Hinoki finds the files inside. 3DS code patches (.ips, .bps) work too.")
         case .save:
-            return "Put the save (a .zip or its folder) in Hinoki's folder (Files app › On My iPhone › Hinoki › Import). Tick it, or open the folder and tap \"Use this folder\"."
+            return L("Put the save (a .zip or its folder) in Hinoki's folder (Files app › On My iPhone › Hinoki › Import). Tick it, or open the folder and tap \"Use this folder\".")
         case .cheat:
-            return "Put the cheat file (3DS: .txt in Azahar / Citra format; Vita: VitaCheat .psv) in Hinoki's folder (Files app › On My iPhone › Hinoki › Import), then pick it here."
+            return L("Put the cheat file (3DS: .txt in Azahar / Citra format; Vita: VitaCheat .psv) in Hinoki's folder (Files app › On My iPhone › Hinoki › Import), then pick it here.")
         case .patch:
-            return "Put the patch file (.txt, Vita3K patch format) in Hinoki's folder (Files app › On My iPhone › Hinoki › Import), then pick it here."
+            return L("Put the patch file (.txt, Vita3K patch format) in Hinoki's folder (Files app › On My iPhone › Hinoki › Import), then pick it here.")
         case .install:
             return "Put games (.vpk, .zip, .pkg, 3DS .3ds/.cci/.cia/.3dsx), firmware (.PUP), licenses (work.bin, .rif, .zrif), plugins or game folders in Hinoki's folder (Files app › On My iPhone › Hinoki, the Import folder is a good spot), then pick them here. Tap a folder to open it; tick it to install everything in it."
         case .plugin:

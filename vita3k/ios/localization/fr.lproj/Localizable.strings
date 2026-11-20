@@ -462,3 +462,22 @@
 "Last played" = "Dernière partie";
 "Compatibility in Vita3K" = "Compatibilité dans Vita3K";
 "Descriptions, ratings and screenshots come from the PlayStation Store, which isn't available offline. The pictures above are the ones that came with the game." = "Les descriptions, notes et captures viennent du PlayStation Store, indisponible hors ligne. Les images ci-dessus sont celles fournies avec le jeu.";
+
+/* Pickers and imports (1.6.0) */
+"Import a patch file (.txt)" = "Importer un fichier de patch (.txt)";
+"Import a cheat file (.psv)" = "Importer un fichier de triches (.psv)";
+"Install mod (zip or folder)" = "Installer un mod (zip ou dossier)";
+"Add a mod (zip, folder or .ips)" = "Ajouter un mod (zip, dossier ou .ips)";
+"Patches come from github.com/Vita3K/vita3k-patches and apply the next time the game starts. An imported patch file (Vita3K's .txt format) is always on; delete it from Files › Hinoki › patch to turn it off." = "Les patchs viennent de github.com/Vita3K/vita3k-patches et s'appliquent au prochain lancement du jeu. Un fichier de patch importé (format .txt de Vita3K) est toujours actif ; supprimez-le de Fichiers › Hinoki › patch pour le désactiver.";
+"Use this folder" = "Utiliser ce dossier";
+"Pick plugins" = "Choisir des plugins";
+"Pick keys" = "Choisir des clés";
+"Pick a mod" = "Choisir un mod";
+"Pick a save" = "Choisir une sauvegarde";
+"Pick a cheat file" = "Choisir un fichier de triches";
+"Pick a patch file" = "Choisir un fichier de patch";
+"Pick files" = "Choisir des fichiers";
+"Put the mod in Hinoki's folder (Files app › On My iPhone › Hinoki, the Import folder is a good spot): a .zip, or its folder. Tick the folder, or open it and tap \"Use this folder\". The mod's own wrappers (load, mods, luma, titles, a title ID folder, rePatch) are fine: Hinoki finds the files inside. 3DS code patches (.ips, .bps) work too." = "Placez le mod dans le dossier de Hinoki (app Fichiers › Sur mon iPhone › Hinoki ; le dossier Import convient bien) : un .zip ou son dossier. Cochez le dossier, ou ouvrez-le et touchez « Utiliser ce dossier ». Les dossiers d'emballage du mod (load, mods, luma, titles, un dossier à l'ID du titre, rePatch) ne posent pas de problème : Hinoki trouve les fichiers à l'intérieur. Les patchs de code 3DS (.ips, .bps) fonctionnent aussi.";
+"Put the save (a .zip or its folder) in Hinoki's folder (Files app › On My iPhone › Hinoki › Import). Tick it, or open the folder and tap \"Use this folder\"." = "Placez la sauvegarde (un .zip ou son dossier) dans le dossier de Hinoki (app Fichiers › Sur mon iPhone › Hinoki › Import). Cochez-la, ou ouvrez le dossier et touchez « Utiliser ce dossier ».";
+"Put the cheat file (3DS: .txt in Azahar / Citra format; Vita: VitaCheat .psv) in Hinoki's folder (Files app › On My iPhone › Hinoki › Import), then pick it here." = "Placez le fichier de triches (3DS : .txt au format Azahar / Citra ; Vita : VitaCheat .psv) dans le dossier de Hinoki (app Fichiers › Sur mon iPhone › Hinoki › Import), puis choisissez-le ici.";
+"Put the patch file (.txt, Vita3K patch format) in Hinoki's folder (Files app › On My iPhone › Hinoki › Import), then pick it here." = "Placez le fichier de patch (.txt, format de patch Vita3K) dans le dossier de Hinoki (app Fichiers › Sur mon iPhone › Hinoki › Import), puis choisissez-le ici.";

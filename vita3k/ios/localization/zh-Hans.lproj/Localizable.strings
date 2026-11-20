@@ -475,3 +475,22 @@
 "Last played" = "上次游玩";
 "Compatibility in Vita3K" = "在 Vita3K 中的兼容性";
 "Descriptions, ratings and screenshots come from the PlayStation Store, which isn't available offline. The pictures above are the ones that came with the game." = "描述、评分和截图来自 PlayStation Store，离线时不可用。上方图片是游戏自带的。";
+
+/* Pickers and imports (1.6.0) */
+"Import a patch file (.txt)" = "导入补丁文件（.txt）";
+"Import a cheat file (.psv)" = "导入金手指文件（.psv）";
+"Install mod (zip or folder)" = "安装 Mod（zip 或文件夹）";
+"Add a mod (zip, folder or .ips)" = "添加 Mod（zip、文件夹或 .ips）";
+"Patches come from github.com/Vita3K/vita3k-patches and apply the next time the game starts. An imported patch file (Vita3K's .txt format) is always on; delete it from Files › Hinoki › patch to turn it off." = "补丁来自 github.com/Vita3K/vita3k-patches，在下次启动游戏时生效。导入的补丁文件（Vita3K 的 .txt 格式）始终开启；要关闭它，请在“文件 › Hinoki › patch”中删除。";
+"Use this folder" = "使用此文件夹";
+"Pick plugins" = "选择插件";
+"Pick keys" = "选择密钥";
+"Pick a mod" = "选择 Mod";
+"Pick a save" = "选择存档";
+"Pick a cheat file" = "选择金手指文件";
+"Pick a patch file" = "选择补丁文件";
+"Pick files" = "选择文件";
+"Put the mod in Hinoki's folder (Files app › On My iPhone › Hinoki, the Import folder is a good spot): a .zip, or its folder. Tick the folder, or open it and tap \"Use this folder\". The mod's own wrappers (load, mods, luma, titles, a title ID folder, rePatch) are fine: Hinoki finds the files inside. 3DS code patches (.ips, .bps) work too." = "把 Mod 放进 Hinoki 的文件夹（“文件”App › 我的 iPhone › Hinoki，放在 Import 文件夹里就很好）：一个 .zip 或它的文件夹。勾选该文件夹，或打开它后轻点“使用此文件夹”。Mod 自带的外层文件夹（load、mods、luma、titles、以游戏 ID 命名的文件夹、rePatch）都没关系：Hinoki 会找到里面的文件。3DS 代码补丁（.ips、.bps）也可以。";
+"Put the save (a .zip or its folder) in Hinoki's folder (Files app › On My iPhone › Hinoki › Import). Tick it, or open the folder and tap \"Use this folder\"." = "把存档（一个 .zip 或它的文件夹）放进 Hinoki 的文件夹（“文件”App › 我的 iPhone › Hinoki › Import）。勾选它，或打开文件夹后轻点“使用此文件夹”。";
+"Put the cheat file (3DS: .txt in Azahar / Citra format; Vita: VitaCheat .psv) in Hinoki's folder (Files app › On My iPhone › Hinoki › Import), then pick it here." = "把金手指文件（3DS：Azahar / Citra 格式的 .txt；Vita：VitaCheat .psv）放进 Hinoki 的文件夹（“文件”App › 我的 iPhone › Hinoki › Import），然后在这里选择。";
+"Put the patch file (.txt, Vita3K patch format) in Hinoki's folder (Files app › On My iPhone › Hinoki › Import), then pick it here." = "把补丁文件（.txt，Vita3K 补丁格式）放进 Hinoki 的文件夹（“文件”App › 我的 iPhone › Hinoki › Import），然后在这里选择。";
