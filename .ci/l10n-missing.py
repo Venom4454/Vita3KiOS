@@ -11,7 +11,8 @@ import pathlib
 import re
 import sys
 
-here = pathlib.Path(__file__).resolve().parent
+# Lives outside vita3k/ios/localization: that folder is copied into the app as it is
+here = pathlib.Path(__file__).resolve().parent.parent / "vita3k" / "ios" / "localization"
 ui = here.parent / "ui"
 lit = r'"((?:[^"\\\n]|\\.)*)"'
 patterns = [

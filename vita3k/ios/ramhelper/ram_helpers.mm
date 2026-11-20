@@ -248,12 +248,22 @@ bool start_helper() {
     std::lock_guard<std::mutex> start_guard(g_start_lock);
     if (start_blocked())
         return false;
-    if (const int setup = v3k_ram_helpers_container_setup(); setup == V3K_RAM_SETUP_SEPARATE_PROCESS || setup == V3K_RAM_SETUP_OPTION_OFF || setup == V3K_RAM_SETUP_NEEDS_REINSTALL) {
+    const int setup = v3k_ram_helpers_container_setup();
+    if (setup == V3K_RAM_SETUP_SEPARATE_PROCESS || setup == V3K_RAM_SETUP_NEEDS_REINSTALL) {
         // Asking iOS can't work here: say what to change instead of timing out over and over
         set_status(v3k_ram_helpers_container_hint(), true);
         g_permanent_failure = true;
         return false;
     }
+    // "Option off" comes from looking for the container's hooks, which change between container
+    // versions: one real attempt decides, so a container that does start helpers is never refused
+    static bool option_off_tried = false;
+    if (setup == V3K_RAM_SETUP_OPTION_OFF && option_off_tried) {
+        set_status(v3k_ram_helpers_container_hint(), true);
+        g_permanent_failure = true;
+        return false;
+    }
+    option_off_tried = option_off_tried || setup == V3K_RAM_SETUP_OPTION_OFF;
     wait_out_jit_setup(200);
     const double started_at = NSDate.timeIntervalSinceReferenceDate;
     NSString *identifier = helper_identifier();
@@ -545,19 +555,33 @@ int v3k_ram_helpers_container_setup(void) {
         // The real executable (image 0) is LiveProcess.appex/LiveProcess in a separate process
         const char *main_image = _dyld_get_image_name(0);
         const bool live_process = main_image && strstr(main_image, ".appex/") != nullptr;
-        // Hooked: the class method's code is the container's, not iOS's
-        bool hooked = false;
+        // Hooked: the method's code is the container's, not iOS's. LiveContainer's first helper support
+        // (8 Nov 2026) and Strata replace +[NSExtension extensionWithIdentifier:error:]; LiveContainer's
+        // "helper process support v2" (15 Nov 2026) replaces PKHost's plug-in discovery instead, and was
+        // taken for "option off" (helpers never even tried) until this check knew it
         if (!NSClassFromString(@"NSExtension"))
             dlopen("/System/Library/Frameworks/ExtensionFoundation.framework/ExtensionFoundation", RTLD_LAZY | RTLD_GLOBAL);
-        if (Class cls = NSClassFromString(@"NSExtension")) {
-            if (Method m = class_getClassMethod(cls, @selector(extensionWithIdentifier:error:))) {
-                Dl_info info{};
-                if (dladdr(reinterpret_cast<const void *>(method_getImplementation(m)), &info) && info.dli_fname)
-                    hooked = strncmp(info.dli_fname, "/System/", 8) != 0 && strncmp(info.dli_fname, "/usr/lib/", 9) != 0;
+        const auto replaced = [](Method m) {
+            Dl_info info{};
+            if (!m || !dladdr(reinterpret_cast<const void *>(method_getImplementation(m)), &info) || !info.dli_fname)
+                return false;
+            return strncmp(info.dli_fname, "/System/", 8) != 0 && strncmp(info.dli_fname, "/usr/lib/", 9) != 0;
+        };
+        bool hooked = false;
+        const char *hook_kind = "none";
+        if (Class cls = NSClassFromString(@"NSExtension"); cls && replaced(class_getClassMethod(cls, @selector(extensionWithIdentifier:error:)))) {
+            hooked = true;
+            hook_kind = "NSExtension";
+        }
+        if (Class host = NSClassFromString(@"PKHost"); !hooked && host) {
+            if (replaced(class_getInstanceMethod(host, NSSelectorFromString(@"discoverPlugInsForAttributes:flags:found:")))
+                || replaced(class_getInstanceMethod(host, NSSelectorFromString(@"readyPlugIns:synchronously:environment:languages:persona:sandbox:ready:")))) {
+                hooked = true;
+                hook_kind = "PKHost (LiveContainer helper support v2)";
             }
         }
-        RAM_LOG_INFO("container: {} process ({}), helper hooks {}", live_process ? "separate (LiveProcess)" : "the container's own",
-            main_image ? main_image : "?", hooked ? "installed" : "NOT installed");
+        RAM_LOG_INFO("container: {} process ({}), helper hooks {} ({})", live_process ? "separate (LiveProcess)" : "the container's own",
+            main_image ? main_image : "?", hooked ? "installed" : "NOT installed", hook_kind);
         if (hooked) {
             if (helper_needs_reinstall()) {
                 RAM_LOG_WARN("container: the helper was not prepared when Hinoki was added to the container");
