@@ -33,6 +33,7 @@ TRACY_MODULE_NAME(taiHEN);
 // substitute library for instruction relocation (from comex/substitute, LGPLv2.1+)
 #include <substitute_api.h>
 
+#include <algorithm>
 #include <cstring>
 #include <map>
 #include <memory>
@@ -1376,6 +1377,32 @@ static void apply_plugin_hle_overrides(EmuEnvState &emuenv, const std::set<uint3
     }
 }
 
+// Kernel plugins made for a real PS Vita's firmware. Copied over with a Vita's ur0:tai folder, they were
+// loaded into every game since plugins arrived (v1.6.0): their hooks on firmware internals fail here, but
+// whatever half of them still applies (AnalogsEnhancer's controller thread, rePatch and NoNpDrm on the
+// file system) changes how the game runs. The emulator already does what they are for, or can't use them.
+static std::string plugin_file_name(const std::string &plugin_path) {
+    const auto slash = plugin_path.find_last_of("/:");
+    return string_utils::tolower(slash == std::string::npos ? plugin_path : plugin_path.substr(slash + 1));
+}
+
+static bool is_hardware_only_kernel_plugin(const std::string &plugin_path) {
+    static constexpr const char *names[] = {
+        "kubridge", "nonpdrm", "repatch", "ref00d", "analogsenhancer", "ioplus", "0syscall6", "storagemgr",
+        "gamesd", "yamt", "iomount", "udcd_uvc", "noavls", "sysident", "ds3", "ds4touch", "ds4vita", "minivitatv",
+        "psvshell", "oclockvita", "lolicon", "reauth", "nopsmdrm", "reNpDrm", "vitastick", "ds34vita", "henkaku",
+        "taihen", "nolockscreen", "noshareblock", "framecounter", "psvsd", "usbmc", "rinomod", "bt_mod"
+    };
+    std::string file = plugin_file_name(plugin_path);
+    if (const auto dot = file.rfind('.'); dot != std::string::npos)
+        file.erase(dot);
+    for (const char *name : names) {
+        if (file == string_utils::tolower(name))
+            return true;
+    }
+    return false;
+}
+
 void load_taihen_plugins_for_title(EmuEnvState &emuenv, const std::string &titleid) {
     auto *state = emuenv.kernel.obj_store.get<TaihenState>();
     if (!state)
@@ -1395,6 +1422,7 @@ void load_taihen_plugins_for_title(EmuEnvState &emuenv, const std::string &title
                 pre_plugin_nids.insert(nid);
         }
 
+        std::vector<std::string> loaded_kernel;
         auto kernel_it = state->config.find("KERNEL");
         if (kernel_it != state->config.end()) {
             for (const auto &plugin_path : kernel_it->second) {
@@ -1404,6 +1432,15 @@ void load_taihen_plugins_for_title(EmuEnvState &emuenv, const std::string &title
                     LOG_INFO("taiHEN: {} skipped, kubridge is built in", plugin_path);
                     continue;
                 }
+                if (is_hardware_only_kernel_plugin(plugin_path)) {
+                    LOG_INFO("taiHEN: {} skipped, it is made for a real PS Vita's firmware", plugin_path);
+                    continue;
+                }
+                if (std::find(loaded_kernel.begin(), loaded_kernel.end(), plugin_file_name(plugin_path)) != loaded_kernel.end()) {
+                    LOG_INFO("taiHEN: {} skipped, a plugin of that name is already loaded", plugin_path);
+                    continue;
+                }
+                loaded_kernel.push_back(plugin_file_name(plugin_path));
                 LOG_INFO("taiHEN: loading kernel plugin: {}", plugin_path);
                 SceUID uid = load_module(emuenv, plugin_path);
                 if (uid < 0) {
@@ -1426,6 +1463,10 @@ void load_taihen_plugins_for_title(EmuEnvState &emuenv, const std::string &title
             for (const auto &plugin_path : plugins) {
                 if (string_utils::tolower(plugin_path).ends_with("kubridge.skprx"))
                     continue;
+                if (is_hardware_only_kernel_plugin(plugin_path)) {
+                    LOG_INFO("taiHEN: {} skipped, it is made for a real PS Vita's firmware", plugin_path);
+                    continue;
+                }
                 LOG_INFO("taiHEN: loading plugin for {}: {}", titleid, plugin_path);
                 SceUID uid = load_module(emuenv, plugin_path);
                 if (uid < 0) {

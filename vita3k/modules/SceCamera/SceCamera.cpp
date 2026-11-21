@@ -27,7 +27,7 @@ TRACY_MODULE_NAME(SceCamera);
 
 EXPORT(int, sceCameraOpen, SceCameraDevice devnum, SceCameraInfo *pInfo) {
     TRACY_FUNC(sceCameraOpen, devnum, pInfo);
-    if (emuenv.cfg.pstv_mode)
+    if (emuenv.cfg.current_config.pstv_mode)
         return RET_ERROR(SCE_CAMERA_ERROR_NOT_MOUNTED);
     if (devnum != SCE_CAMERA_DEVICE_BACK && devnum != SCE_CAMERA_DEVICE_FRONT)
         return RET_ERROR(SCE_CAMERA_ERROR_PARAM);
@@ -131,7 +131,7 @@ EXPORT(int, sceCameraOpen, SceCameraDevice devnum, SceCameraInfo *pInfo) {
 
 EXPORT(int, sceCameraClose, SceCameraDevice devnum) {
     TRACY_FUNC(sceCameraClose, devnum);
-    if (emuenv.cfg.pstv_mode)
+    if (emuenv.cfg.current_config.pstv_mode)
         return RET_ERROR(SCE_CAMERA_ERROR_NOT_MOUNTED);
     if (devnum != SCE_CAMERA_DEVICE_BACK && devnum != SCE_CAMERA_DEVICE_FRONT)
         return RET_ERROR(SCE_CAMERA_ERROR_PARAM);
@@ -144,7 +144,7 @@ EXPORT(int, sceCameraClose, SceCameraDevice devnum) {
 
 EXPORT(int, sceCameraStart, SceCameraDevice devnum) {
     TRACY_FUNC(sceCameraStart, devnum);
-    if (emuenv.cfg.pstv_mode)
+    if (emuenv.cfg.current_config.pstv_mode)
         return RET_ERROR(SCE_CAMERA_ERROR_NOT_MOUNTED);
     if (devnum != SCE_CAMERA_DEVICE_BACK && devnum != SCE_CAMERA_DEVICE_FRONT)
         return RET_ERROR(SCE_CAMERA_ERROR_PARAM);
@@ -160,7 +160,7 @@ EXPORT(int, sceCameraStart, SceCameraDevice devnum) {
 
 EXPORT(int, sceCameraStop, SceCameraDevice devnum) {
     TRACY_FUNC(sceCameraStop, devnum);
-    if (emuenv.cfg.pstv_mode)
+    if (emuenv.cfg.current_config.pstv_mode)
         return RET_ERROR(SCE_CAMERA_ERROR_NOT_MOUNTED);
     if (devnum != SCE_CAMERA_DEVICE_BACK && devnum != SCE_CAMERA_DEVICE_FRONT)
         return RET_ERROR(SCE_CAMERA_ERROR_PARAM);
@@ -177,7 +177,7 @@ EXPORT(int, sceCameraStop, SceCameraDevice devnum) {
 EXPORT(int, sceCameraRead, SceCameraDevice devnum, SceCameraRead *pRead) {
     TRACY_FUNC(sceCameraRead, devnum, pRead);
 
-    if (emuenv.cfg.pstv_mode)
+    if (emuenv.cfg.current_config.pstv_mode)
         return RET_ERROR(SCE_CAMERA_ERROR_NOT_MOUNTED);
     if (devnum != SCE_CAMERA_DEVICE_BACK && devnum != SCE_CAMERA_DEVICE_FRONT)
         return RET_ERROR(SCE_CAMERA_ERROR_PARAM);
@@ -230,7 +230,7 @@ EXPORT(int, sceCameraRead, SceCameraDevice devnum, SceCameraRead *pRead) {
 
 EXPORT(int, sceCameraIsActive, SceCameraDevice devnum) {
     TRACY_FUNC(sceCameraIsActive, devnum);
-    if (emuenv.cfg.pstv_mode)
+    if (emuenv.cfg.current_config.pstv_mode)
         return RET_ERROR(SCE_CAMERA_ERROR_NOT_MOUNTED);
     if (devnum != SCE_CAMERA_DEVICE_BACK && devnum != SCE_CAMERA_DEVICE_FRONT)
         return RET_ERROR(SCE_CAMERA_ERROR_PARAM);
@@ -246,7 +246,7 @@ EXPORT(int, sceCameraIsActive, SceCameraDevice devnum) {
 }
 
 static int camera_get_attribute(EmuEnvState &emuenv, SceUID thread_id, const char *export_name, SceCameraDevice devnum, CameraAttributes attribute, int *pValue) {
-    if (emuenv.cfg.pstv_mode)
+    if (emuenv.cfg.current_config.pstv_mode)
         return RET_ERROR(SCE_CAMERA_ERROR_NOT_MOUNTED);
     if (devnum != SCE_CAMERA_DEVICE_BACK && devnum != SCE_CAMERA_DEVICE_FRONT)
         return RET_ERROR(SCE_CAMERA_ERROR_PARAM);
@@ -263,7 +263,7 @@ static int camera_get_attribute(EmuEnvState &emuenv, SceUID thread_id, const cha
 }
 
 static int camera_set_attribute(EmuEnvState &emuenv, SceUID thread_id, const char *export_name, SceCameraDevice devnum, CameraAttributes attribute, int value) {
-    if (emuenv.cfg.pstv_mode)
+    if (emuenv.cfg.current_config.pstv_mode)
         return RET_ERROR(SCE_CAMERA_ERROR_NOT_MOUNTED);
     if (devnum != SCE_CAMERA_DEVICE_BACK && devnum != SCE_CAMERA_DEVICE_FRONT)
         return RET_ERROR(SCE_CAMERA_ERROR_PARAM);
@@ -477,7 +477,7 @@ EXPORT(int, sceCameraSetSharpnessOff, SceCameraDevice devnum, int value) {
 
 EXPORT(int, sceCameraGetDeviceLocation, SceCameraDevice devnum, SceFVector3 *pLocation) {
     TRACY_FUNC(sceCameraGetDeviceLocation, devnum, pLocation);
-    if (emuenv.cfg.pstv_mode)
+    if (emuenv.cfg.current_config.pstv_mode)
         return RET_ERROR(SCE_CAMERA_ERROR_NOT_MOUNTED);
     if (devnum != SCE_CAMERA_DEVICE_BACK && devnum != SCE_CAMERA_DEVICE_FRONT)
         return RET_ERROR(SCE_CAMERA_ERROR_PARAM);

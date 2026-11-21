@@ -62,6 +62,9 @@ PCSA00152 precise-math=on | Precise shader math: for the solid white character o
 PCSF00532 precise-math=on | Precise shader math: for the solid white character on the customisation screen
 PCSD00079 precise-math=on | Precise shader math: for the solid white character on the customisation screen
 PCSC00049 precise-math=on | Precise shader math: for the solid white character on the customisation screen
+# Gundam Breaker 3 (Asia): colours and models broken. Its log had Fast CPU on, the same floating-point
+# shortcuts that broke Extreme VS-Force's graphics. Leading guess, untested
+PCSH10041 fast-cpu=off | Exact floating point: for the broken colours and models (Fast CPU's shortcuts)
 # Ninja Gaiden Sigma 2 Plus: black screen at launch (also on Android). Leading guess, as LittleBigPlanet's GPU loss at boot with double-buffer mapping; untested
 PCSE00233 memory-mapping=off | GPU memory mapping off: for the black screen at launch
 PCSB00294 memory-mapping=off | GPU memory mapping off: for the black screen at launch

@@ -112,6 +112,11 @@ struct State {
 
     GXPPtrMap gxp_ptr_map;
     Queue<CommandList> command_buffer_queue;
+    // Commands a game thread waits on that don't depend on what is queued before them (creating a
+    // render target). Run ahead of the queue: behind a scene that waits on a sync object the game
+    // only signals later, the game waited on the renderer and the renderer on the game (Dynasty
+    // Warriors 8 froze at the end of its opening movies). On the Vita these calls never wait on the GPU.
+    Queue<CommandList> priority_command_queue;
     std::condition_variable command_finish_one;
     std::mutex command_finish_one_mutex;
 

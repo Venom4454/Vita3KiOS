@@ -25,6 +25,7 @@
 #include <pugixml.hpp>
 
 #include <algorithm>
+#include <cstdlib>
 
 namespace config {
 
@@ -390,6 +391,9 @@ void set_current_config(Config &cfg, const fs::path &config_path, const std::str
         // on in Settings did nothing for any game with its own settings. Those follow Settings.
         auto &cc = cfg.current_config;
         cc.pstv_mode = cfg.pstv_mode;
+        // A game's page can override PS TV mode for that game only (set at launch).
+        if (const char *pstv = getenv("V3K_PSTV_GAME"); pstv && (pstv[0] == '0' || pstv[0] == '1'))
+            cc.pstv_mode = pstv[0] == '1';
         cc.sys_button = cfg.sys_button;
         cc.sys_lang = cfg.sys_lang;
         cc.sys_date_format = cfg.sys_date_format;

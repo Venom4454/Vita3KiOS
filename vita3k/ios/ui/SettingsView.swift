@@ -703,7 +703,7 @@ struct EmulationSections: View {
                 described("CPU optimisations", "Much faster. Turn off only to test a game that breaks.")
             }
             Toggle(isOn: binding(\.pstvMode) { model.setBool("pstv-mode", $0) }) {
-                described("PS TV mode", "Tells games they run on a PS TV. Some then use the controller's extra buttons: the touch controls add L2, R2, L3 and R3 while it's on. Touch-only games may refuse to start.")
+                described("PS TV mode", "Tells games they run on a PS TV. Some then use the controller's extra buttons: the touch controls add L2, R2, L3 and R3 while it's on. Touch-only games may refuse to start, and some games draw their HUD wrong. Applies to every game; a game's own page can turn it off for that game.")
             }
             NavigationLink {
                 PerformanceOverlaySettings()

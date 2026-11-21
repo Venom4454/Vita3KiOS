@@ -302,7 +302,19 @@ void destroy_context_during_shutdown(State &state, std::unique_ptr<Context> &con
 }
 
 bool create_render_target(State &state, std::unique_ptr<RenderTarget> &rt, const SceGxmRenderTargetParams *params) {
-    return renderer::send_single_command(state, nullptr, renderer::CommandOpcode::CreateRenderTarget, true, &rt, params) > CommandErrorCodeNone;
+    // Through the priority queue (see State::priority_command_queue): nothing queued before it can
+    // use a render target that doesn't exist yet, and everything that will use it is queued after
+    int status = CommandErrorCodePending;
+    Command *cmd = make_command(generic_command_allocate, generic_command_free, renderer::CommandOpcode::CreateRenderTarget, &status, &rt, params);
+    if (!cmd)
+        return false;
+    CommandList list;
+    list.first = cmd;
+    list.last = cmd;
+    list.context = nullptr;
+    state.priority_command_queue.push(list);
+    state.command_buffer_queue.wake();
+    return wait_for_status(state, &status, CommandErrorCodePending, false) > CommandErrorCodeNone;
 }
 
 void destroy_render_target(State &state, std::unique_ptr<RenderTarget> &rt) {

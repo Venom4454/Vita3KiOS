@@ -332,6 +332,8 @@ final class LibraryModel: ObservableObject {
         setenv("V3K_PRECISE_SHADER_MATH", UserDefaults.standard.bool(forKey: "v3k.preciseMath.\(app.titleId)") ? "1" : "0", 1)
         // Per-game "Vertex realignment" (on unless the player turned it off for this game)
         setenv("V3K_VERTEX_REALIGN_USER_OFF", UserDefaults.standard.bool(forKey: "v3k.vertexRealignOff.\(app.titleId)") ? "1" : "0", 1)
+        let pstv = UserDefaults.standard.integer(forKey: "v3k.pstv.\(app.titleId)")
+        setenv("V3K_PSTV_GAME", pstv == 1 ? "1" : pstv == 2 ? "0" : "", 1)
         v3k_request_launch(app.titleId)
     }
 

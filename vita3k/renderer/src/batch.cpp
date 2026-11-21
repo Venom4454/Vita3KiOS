@@ -174,6 +174,11 @@ void process_batches(renderer::State &state, const FeatureState &features, MemSt
         if (state.render_abort.load(std::memory_order_relaxed))
             return;
 
+        // commands a game thread waits on that nothing queued before them depends on (see
+        // State::priority_command_queue): never stuck behind a scene waiting on the game
+        while (auto priority = state.priority_command_queue.pop(1))
+            process_batch(state, features, mem, config, *priority);
+
         // overlay requested an async present
         if (overlay_frame_allowed(state))
             return;
@@ -363,10 +368,12 @@ void start_render_thread(State &state, DisplayState &display, GxmState &gxm, Mem
 void stop_render_thread(State &state) {
     state.render_abort = true;
     state.command_buffer_queue.abort();
+    state.priority_command_queue.abort();
     if (state.render_thread && state.render_thread->joinable())
         state.render_thread->join();
     state.render_thread.reset();
     state.command_buffer_queue.reset();
+    state.priority_command_queue.reset();
 }
 
 } // namespace renderer

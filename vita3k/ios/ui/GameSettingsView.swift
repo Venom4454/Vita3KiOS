@@ -97,6 +97,7 @@ struct GameSettingsView: View {
 
     @State private var preciseMath = false
     @State private var vertexRealignOff = false
+    @State private var pstvChoice = 0
     @State private var gameFix: GameFixInfo?
     @State private var showingShortcutHelp = false
     @State private var settings = GameSettings()
@@ -349,6 +350,20 @@ struct GameSettingsView: View {
                         .font(.caption).foregroundStyle(.secondary)
                 }
             }
+            Picker(selection: Binding(get: { pstvChoice }, set: { v in
+                pstvChoice = v
+                UserDefaults.standard.set(v, forKey: "v3k.pstv.\(app.titleId)")
+            })) {
+                Text("Same as Settings").tag(0)
+                Text("On").tag(1)
+                Text("Off").tag(2)
+            } label: {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("PS TV mode")
+                    Text("Some games show a broken or oversized HUD in PS TV mode. Turn it off here for just this game.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+            }
         } header: {
             Text("Settings")
         } footer: {
@@ -573,6 +588,7 @@ struct GameSettingsView: View {
         }
         preciseMath = UserDefaults.standard.bool(forKey: "v3k.preciseMath.\(app.titleId)")
         vertexRealignOff = UserDefaults.standard.bool(forKey: "v3k.vertexRealignOff.\(app.titleId)")
+        pstvChoice = UserDefaults.standard.integer(forKey: "v3k.pstv.\(app.titleId)")
         if let json = takeString(v3k_game_settings_json(app.titleId)), let data = json.data(using: .utf8),
            let decoded = try? JSONDecoder().decode(GameSettings.self, from: data) {
             settings = decoded

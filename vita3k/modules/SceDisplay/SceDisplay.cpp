@@ -99,7 +99,7 @@ EXPORT(SceInt32, _sceDisplayGetMaximumFrameBufResolution, SceInt32 *width, SceIn
     TRACY_FUNC(_sceDisplayGetMaximumFrameBufResolution, width, height);
     if (!width || !height)
         return 0;
-    if (emuenv.cfg.pstv_mode) {
+    if (emuenv.cfg.current_config.pstv_mode) {
         *width = 1920;
         *height = 1088;
     } else {
