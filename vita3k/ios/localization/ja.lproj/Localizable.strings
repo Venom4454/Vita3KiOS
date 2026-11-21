@@ -421,6 +421,7 @@
 "Shows a bar while saved shaders load at game start." = "ゲーム起動時に保存済みシェーダーを読み込む間、バーを表示します。";
 "Much faster. Turn off only to test a game that breaks." = "大幅に高速です。不具合のあるゲームを試すときだけオフにしてください。";
 "Tells games they run on a PS TV. Some then use the controller's extra buttons: the touch controls add L2, R2, L3 and R3 while it's on. Touch-only games may refuse to start." = "ゲームに PS TV で動いていると伝えます。コントローラーの追加ボタンを使うゲームもあり、オンの間はタッチ操作に L2、R2、L3、R3 が加わります。タッチ専用のゲームは起動しないことがあります。";
+"Tells games they run on a PS TV. Some then use the controller's extra buttons: the touch controls add L2, R2, L3 and R3 while it's on. Touch-only games may refuse to start, and some games draw their HUD wrong. Applies to every game; a game's own page can turn it off for that game." = "ゲームに PS TV で動いていると伝えます。コントローラーの追加ボタンを使うゲームもあり、オンの間はタッチ操作に L2、R2、L3、R3 が加わります。タッチ専用のゲームは起動しないことがあります。HUD が正しく表示されないゲームもあります。すべてのゲームに適用され、各ゲームのページでそのゲームだけオフにできます。";
 "The Vita's sound mixer, used by many games for music and effects. Turn off only if a game hangs on audio (it will be silent)." = "Vita のサウンドミキサーで、多くのゲームが音楽や効果音に使います。ゲームが音声で止まる場合のみオフにしてください（無音になります）。";
 "Checked now. Memory and JIT change while Hinoki runs; open this again after launching a game for the latest." = "今確認しました。メモリと JIT は Hinoki の動作中に変わります。最新の状態はゲーム起動後にもう一度開いて確認してください。";
 "Paste it into a bug report or the Discord when asking for help." = "助けを求めるときは、バグ報告や Discord に貼り付けてください。";
@@ -493,3 +494,7 @@
 "Put the save (a .zip or its folder) in Hinoki's folder (Files app › On My iPhone › Hinoki › Import). Tick it, or open the folder and tap \"Use this folder\"." = "セーブ（.zip またはそのフォルダ）を Hinoki のフォルダ（ファイル App › このiPhone内 › Hinoki › Import）に入れてください。チェックを入れるか、フォルダを開いて「このフォルダを使う」をタップします。";
 "Put the cheat file (3DS: .txt in Azahar / Citra format; Vita: VitaCheat .psv) in Hinoki's folder (Files app › On My iPhone › Hinoki › Import), then pick it here." = "チートファイル（3DS：Azahar / Citra 形式の .txt、Vita：VitaCheat .psv）を Hinoki のフォルダ（ファイル App › このiPhone内 › Hinoki › Import）に入れて、ここで選択してください。";
 "Put the patch file (.txt, Vita3K patch format) in Hinoki's folder (Files app › On My iPhone › Hinoki › Import), then pick it here." = "パッチファイル（.txt、Vita3K のパッチ形式）を Hinoki のフォルダ（ファイル App › このiPhone内 › Hinoki › Import）に入れて、ここで選択してください。";
+"Same as Settings" = "設定と同じ";
+"Some games show a broken or oversized HUD in PS TV mode. Turn it off here for just this game." = "PS TV モードで HUD が崩れたり大きすぎたりするゲームがあります。ここでこのゲームだけオフにできます。";
+"Off" = "オフ";
+"Made for a real PS Vita: not loaded in Hinoki, which already does its job or can't use it" = "実機の PS Vita 用です。Hinoki では読み込みません（同じ機能が既にあるか、使えません）";

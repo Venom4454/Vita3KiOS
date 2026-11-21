@@ -422,6 +422,7 @@
 "Shows a bar while saved shaders load at game start." = "在游戏启动加载已保存着色器时显示进度条。";
 "Much faster. Turn off only to test a game that breaks." = "快得多。仅在测试出问题的游戏时关闭。";
 "Tells games they run on a PS TV. Some then use the controller's extra buttons: the touch controls add L2, R2, L3 and R3 while it's on. Touch-only games may refuse to start." = "告诉游戏它运行在 PS TV 上。有些游戏会因此使用手柄的额外按键：开启时触控按键会加入 L2、R2、L3 和 R3。纯触屏游戏可能拒绝启动。";
+"Tells games they run on a PS TV. Some then use the controller's extra buttons: the touch controls add L2, R2, L3 and R3 while it's on. Touch-only games may refuse to start, and some games draw their HUD wrong. Applies to every game; a game's own page can turn it off for that game." = "告诉游戏它运行在 PS TV 上。有些游戏会因此使用手柄的额外按键：开启时触控按键会加入 L2、R2、L3 和 R3。纯触屏游戏可能拒绝启动。有些游戏的 HUD 会显示错误。对所有游戏生效；可在单个游戏的页面中只为该游戏关闭。";
 "The Vita's sound mixer, used by many games for music and effects. Turn off only if a game hangs on audio (it will be silent)." = "Vita 的混音器，许多游戏用它播放音乐和音效。仅在游戏卡在音频上时关闭（游戏将没有声音）。";
 "Checked now. Memory and JIT change while Hinoki runs; open this again after launching a game for the latest." = "刚刚检查。Hinoki 运行时内存和 JIT 会变化；启动游戏后再次打开可查看最新情况。";
 "Paste it into a bug report or the Discord when asking for help." = "求助时请粘贴到错误报告或 Discord 中。";
@@ -494,3 +495,7 @@
 "Put the save (a .zip or its folder) in Hinoki's folder (Files app › On My iPhone › Hinoki › Import). Tick it, or open the folder and tap \"Use this folder\"." = "把存档（一个 .zip 或它的文件夹）放进 Hinoki 的文件夹（“文件”App › 我的 iPhone › Hinoki › Import）。勾选它，或打开文件夹后轻点“使用此文件夹”。";
 "Put the cheat file (3DS: .txt in Azahar / Citra format; Vita: VitaCheat .psv) in Hinoki's folder (Files app › On My iPhone › Hinoki › Import), then pick it here." = "把金手指文件（3DS：Azahar / Citra 格式的 .txt；Vita：VitaCheat .psv）放进 Hinoki 的文件夹（“文件”App › 我的 iPhone › Hinoki › Import），然后在这里选择。";
 "Put the patch file (.txt, Vita3K patch format) in Hinoki's folder (Files app › On My iPhone › Hinoki › Import), then pick it here." = "把补丁文件（.txt，Vita3K 补丁格式）放进 Hinoki 的文件夹（“文件”App › 我的 iPhone › Hinoki › Import），然后在这里选择。";
+"Same as Settings" = "与设置相同";
+"Some games show a broken or oversized HUD in PS TV mode. Turn it off here for just this game." = "有些游戏在 PS TV 模式下 HUD 显示错乱或过大。可在此只为这个游戏关闭。";
+"Off" = "关";
+"Made for a real PS Vita: not loaded in Hinoki, which already does its job or can't use it" = "为真实 PS Vita 制作：Hinoki 不会加载它（已具备其功能或无法使用）";

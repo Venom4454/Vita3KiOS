@@ -56,6 +56,8 @@ int unload_sys_module(EmuEnvState &emuenv, SceSysmoduleModuleId module_id);
 bool load_sys_module_internal_with_arg(EmuEnvState &emuenv, SceSysmoduleInternalModuleId module_id, SceSize args, Ptr<void> argp, int *retcode);
 
 void load_taihen_plugins_for_title(EmuEnvState &emuenv, const std::string &titleid);
+// Kernel plugins made for a real PS Vita's firmware, which Hinoki skips (the Plugins page shows them as unused)
+bool is_hardware_only_kernel_plugin(const std::string &plugin_path);
 
 Ptr<void> create_vtable(const std::vector<uint32_t> &nids, MemState &mem);
 Ptr<void> get_client_vtable(KernelState &kernel, MemState &mem);

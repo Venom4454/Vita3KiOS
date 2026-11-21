@@ -32,6 +32,8 @@
 #include <util/log.h>
 #include <util/thermal.h>
 
+#include <array>
+#include <map>
 #include <memory>
 #include <thread>
 
@@ -89,7 +91,7 @@ static renderer::SyncWaitResult wait_cmd(MemState &mem, CommandList &command_lis
 static void process_batch(renderer::State &state, const FeatureState &features, MemState &mem, Config &config, CommandList &command_list) {
     using CommandHandlerFunc = decltype(cmd_handle_set_context);
 
-    const static std::map<CommandOpcode, CommandHandlerFunc *> handlers = {
+    const static std::map<CommandOpcode, CommandHandlerFunc *> handler_map = {
         { CommandOpcode::SetContext, cmd_handle_set_context },
         { CommandOpcode::SyncSurfaceData, cmd_handle_sync_surface_data },
         { CommandOpcode::MidSceneFlush, cmd_handle_mid_scene_flush },
@@ -111,6 +113,13 @@ static void process_batch(renderer::State &state, const FeatureState &features, 
         { CommandOpcode::DestroyRenderTarget, cmd_handle_destroy_render_target },
         { CommandOpcode::DestroyContext, cmd_handle_destroy_context }
     };
+    // Every draw and state change of every frame goes through here: one array index instead of a map search
+    const static std::array<CommandHandlerFunc *, 256> handlers = [] {
+        std::array<CommandHandlerFunc *, 256> table{};
+        for (const auto &[opcode, func] : handler_map)
+            table[static_cast<std::uint8_t>(opcode)] = func;
+        return table;
+    }();
 
     if (command_list.context)
         state.context = command_list.context;
@@ -123,12 +132,12 @@ static void process_batch(renderer::State &state, const FeatureState &features, 
             break;
         }
 
-        auto handler = handlers.find(cmd->opcode);
-        if (handler == handlers.end()) {
+        CommandHandlerFunc *handler = handlers[static_cast<std::uint8_t>(cmd->opcode)];
+        if (!handler) {
             LOG_ERROR("Unimplemented command opcode {}", static_cast<int>(cmd->opcode));
         } else {
             CommandHelper helper(cmd);
-            handler->second(state, mem, config, helper, features, command_list.context);
+            handler(state, mem, config, helper, features, command_list.context);
         }
 
         Command *last_cmd = cmd;
@@ -176,7 +185,7 @@ void process_batches(renderer::State &state, const FeatureState &features, MemSt
 
         // commands a game thread waits on that nothing queued before them depends on (see
         // State::priority_command_queue): never stuck behind a scene waiting on the game
-        while (auto priority = state.priority_command_queue.pop(1))
+        while (auto priority = state.priority_command_queue.try_pop())
             process_batch(state, features, mem, config, *priority);
 
         // overlay requested an async present

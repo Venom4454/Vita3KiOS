@@ -1386,7 +1386,7 @@ static std::string plugin_file_name(const std::string &plugin_path) {
     return string_utils::tolower(slash == std::string::npos ? plugin_path : plugin_path.substr(slash + 1));
 }
 
-static bool is_hardware_only_kernel_plugin(const std::string &plugin_path) {
+bool is_hardware_only_kernel_plugin(const std::string &plugin_path) {
     static constexpr const char *names[] = {
         "kubridge", "nonpdrm", "repatch", "ref00d", "analogsenhancer", "ioplus", "0syscall6", "storagemgr",
         "gamesd", "yamt", "iomount", "udcd_uvc", "noavls", "sysident", "ds3", "ds4touch", "ds4vita", "minivitatv",

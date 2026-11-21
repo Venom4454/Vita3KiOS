@@ -37,6 +37,7 @@
 #include <cpu/functions.h>
 #include <io/state.h>
 #include <miniz.h>
+#include <modules/module_parent.h>
 #include <net/relay.h>
 #include <packages/functions.h>
 #include <packages/license.h>
@@ -968,9 +969,10 @@ char *v3k_plugins_json(void) {
             std::error_code ec;
             const bool exists = fs::exists(plugin_host_path(vita_fs, plugin), ec);
             const bool builtin = lower_filename(plugin) == "kubridge.skprx";
-            items += fmt::format(R"({}{{"path":"{}","file":"{}","section":"{}","exists":{},"builtIn":{}}})", items.empty() ? "" : ",",
+            const bool unused = !builtin && is_hardware_only_kernel_plugin(plugin);
+            items += fmt::format(R"({}{{"path":"{}","file":"{}","section":"{}","exists":{},"builtIn":{},"hardwareOnly":{}}})", items.empty() ? "" : ",",
                 json_escape(plugin), json_escape(plugin.substr(plugin.find_last_of("/:") + 1)), json_escape(section.name),
-                exists ? "true" : "false", builtin ? "true" : "false");
+                exists ? "true" : "false", builtin ? "true" : "false", unused ? "true" : "false");
         }
     }
     std::error_code ec;

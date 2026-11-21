@@ -17,6 +17,7 @@ struct PluginsView: View {
         let section: String
         let exists: Bool
         let builtIn: Bool
+        var hardwareOnly: Bool? = nil
         var id: String { section + "|" + path }
     }
 
@@ -142,6 +143,8 @@ struct PluginsView: View {
                     Text(plugin.file).foregroundStyle(.primary)
                     if plugin.builtIn {
                         Text("Built into Hinoki: this file is not loaded").font(.caption).foregroundStyle(.secondary)
+                    } else if plugin.hardwareOnly == true {
+                        Text("Made for a real PS Vita: not loaded in Hinoki, which already does its job or can't use it").font(.caption).foregroundStyle(.secondary)
                     } else if !plugin.exists {
                         Text("File missing: add it again").font(.caption).foregroundStyle(.orange)
                     } else {

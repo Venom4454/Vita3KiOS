@@ -77,6 +77,20 @@ public:
         return std::make_unique<T>(item);
     }
 
+    // Never waits: empty pointer when nothing is queued (polled every render loop)
+    std::unique_ptr<T> try_pop() {
+        T item{ T() };
+        {
+            std::unique_lock<std::mutex> mlock(mutex_);
+            if (aborted || queue_.empty())
+                return {};
+            item = queue_.front();
+            queue_.pop();
+        }
+        cond_.notify_all();
+        return std::make_unique<T>(item);
+    }
+
     bool push(const T &item) {
         {
             std::unique_lock<std::mutex> mlock(mutex_);
