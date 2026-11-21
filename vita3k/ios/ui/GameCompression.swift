@@ -21,6 +21,7 @@ final class GameCompressionModel: ObservableObject {
     @Published var progress: Double = 0
     @Published var message: String?
     @Published var confirming = false
+    @Published var canCompressMore = true
 
     init(system: System, id: String) {
         self.system = system
@@ -37,6 +38,7 @@ final class GameCompressionModel: ObservableObject {
             var supported = true
             var reason = ""
             var compressed = false
+            var more = true // something left to compress
             var size = ""
             switch system {
             case .vita:
@@ -62,15 +64,21 @@ final class GameCompressionModel: ObservableObject {
                     var kind: String?
                     var file: String?
                     var bytes: UInt64?
+                    var packedContents: Int?
+                    var contents: Int?
                 }
                 if let json = takeString(v3k_n3ds_info_json(id)), let data = json.data(using: .utf8),
                    let info = try? JSONDecoder().decode(Info.self, from: data) {
                     if info.kind == "installed" {
-                        supported = false
-                        reason = NSLocalizedString("Installed games (from a .cia) are kept by the 3DS system and can't be compressed.", comment: "")
+                        // installed from a .cia: its content files are packed in place
+                        let packed = info.packedContents ?? 0
+                        compressed = packed > 0
+                        more = packed < (info.contents ?? 0)
+                    } else {
+                        let ext = ((info.file ?? "") as NSString).pathExtension.lowercased()
+                        compressed = Self.compressedExtensions.contains(ext)
+                        more = !compressed
                     }
-                    let ext = ((info.file ?? "") as NSString).pathExtension.lowercased()
-                    compressed = Self.compressedExtensions.contains(ext)
                     if let bytes = info.bytes, bytes > 0 { size = Self.bytes(bytes) }
                 }
             }
@@ -78,6 +86,7 @@ final class GameCompressionModel: ObservableObject {
                 self.supported = supported
                 self.unsupportedReason = reason
                 self.compressed = compressed
+                self.canCompressMore = more
                 self.sizeText = size
             }
         }
@@ -186,7 +195,7 @@ struct GameCompressionSection: View {
                     }
                 }
                 // a Vita game can be partly compressed (new files from an update): compressing again packs those
-                if !model.compressed || model.system == .vita {
+                if !model.compressed || model.system == .vita || model.canCompressMore {
                     Button {
                         model.confirming = true
                     } label: {
@@ -206,7 +215,7 @@ struct GameCompressionSection: View {
             } else if model.system == .vita {
                 Text("Packs the game's files to save space; it plays from them. Loading can take a little longer. Takes a few minutes for a big game, and Decompress brings the files back as they were.")
             } else {
-                Text("Converts the game to the 3DS core's compressed format; it plays as before. Decompress brings back a plain file.")
+                Text("Converts the game to the 3DS core's compressed format; it plays as before. Installed games (.cia) are packed with their update and DLC. Decompress brings back plain files.")
             }
         }
     }

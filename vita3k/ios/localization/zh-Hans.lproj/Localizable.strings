@@ -512,3 +512,6 @@
 "Packs the game's files to save space; it plays from them. Loading can take a little longer. Takes a few minutes for a big game, and Decompress brings the files back as they were." = "压缩游戏文件以节省空间，游戏可直接从中运行。加载可能稍慢。大型游戏需要几分钟，“解压”可恢复原来的文件。";
 "Converts the game to the 3DS core's compressed format; it plays as before. Decompress brings back a plain file." = "将游戏转换为 3DS 核心的压缩格式，运行方式不变。“解压”可恢复为普通文件。";
 "Keep Hinoki open until it's done. Each file is checked before it replaces the original, so stopping halfway leaves the game playable." = "请保持 Hinoki 打开直到完成。每个文件都会先校验再替换原文件，因此中途停止也不影响游戏运行。";
+"New 3DS mode adds the C-stick and ZL/ZR and runs New 3DS-only games. A lower CPU clock can speed up heavy games (some run too fast or glitch); higher fixes slowdowns that the real 3DS also had. Compress CIA installs stores games, updates and DLC installed from now on in compressed form (they play the same; installing takes longer)." = "New 3DS 模式会加入 C 摇杆和 ZL/ZR，并可运行 New 3DS 专属游戏。降低 CPU 频率可以加快重负载游戏（部分游戏会过快或出错）；提高则可修正真机 3DS 上也存在的掉帧。开启“压缩 CIA 安装”后，此后安装的游戏、更新和 DLC 将以压缩形式保存（运行方式不变，安装耗时更长）。";
+"Compress CIA installs" = "压缩 CIA 安装";
+"Converts the game to the 3DS core's compressed format; it plays as before. Installed games (.cia) are packed with their update and DLC. Decompress brings back plain files." = "将游戏转换为 3DS 核心的压缩格式，运行方式不变。已安装的游戏（.cia）会连同更新和 DLC 一起压缩。“解压”可恢复为普通文件。";

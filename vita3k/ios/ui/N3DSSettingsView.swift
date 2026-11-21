@@ -174,10 +174,11 @@ struct N3DSSettingsView: View {
                     Slider(value: number("cpu_clock_percentage"), in: 25...200, step: 5)
                 }
                 Toggle("JIT (much faster)", isOn: flag("use_cpu_jit"))
+                Toggle("Compress CIA installs", isOn: flag("compress_cia_installs"))
             } header: {
                 Text("System")
             } footer: {
-                Text("New 3DS mode adds the C-stick and ZL/ZR and runs New 3DS-only games. A lower CPU clock can speed up heavy games (some run too fast or glitch); higher fixes slowdowns that the real 3DS also had.")
+                Text("New 3DS mode adds the C-stick and ZL/ZR and runs New 3DS-only games. A lower CPU clock can speed up heavy games (some run too fast or glitch); higher fixes slowdowns that the real 3DS also had. Compress CIA installs stores games, updates and DLC installed from now on in compressed form (they play the same; installing takes longer).")
             }
 
             Section("Audio") {

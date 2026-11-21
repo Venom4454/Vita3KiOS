@@ -24,6 +24,7 @@
 #include "audio_core/dsp_interface.h"
 #include "audio_core/sink_details.h"
 #include "common/common_paths.h"
+#include "common/file_derived.h"
 #include "common/file_util.h"
 #include "common/logging/backend.h"
 #include "common/logging/filter.h"
@@ -41,6 +42,7 @@
 #include "core/frontend/emu_window.h"
 #include "core/frontend/input.h"
 #include "core/hle/service/am/am.h"
+#include "core/hw/unique_data.h"
 #include "core/hle/service/fs/archive.h"
 #include "core/hle/service/service.h"
 #include "core/loader/loader.h"
@@ -975,6 +977,136 @@ int azh_convert_rom(const char* src_c, bool compress, azh_progress_fn progress, 
     return AZH_CONVERT_FAILED;
 }
 
+namespace {
+// The content files (.app) of an installed title, its update and its DLC
+std::vector<std::string> InstalledContentFiles(uint64_t title_id) {
+    std::vector<std::string> files;
+    const u64 low = title_id & 0xFFFFFFFF;
+    const std::array<std::pair<Service::FS::MediaType, u64>, 3> titles{{
+        {Service::AM::GetTitleMediaType(title_id), title_id},
+        {Service::FS::MediaType::SDMC, (u64{0x0004000E} << 32) | low},
+        {Service::FS::MediaType::SDMC, (u64{0x0004008C} << 32) | low},
+    }};
+    for (const auto& [media, id] : titles) {
+        const std::string folder = Service::AM::GetTitlePath(media, id) + "content/";
+        if (!FileUtil::IsDirectory(folder))
+            continue;
+        FileUtil::ForeachDirectoryEntry(
+            nullptr, folder,
+            [&files](u64*, const std::string& directory, const std::string& name) {
+                const std::string path = directory + DIR_SEP + name;
+                if (name.size() > 4 && name.ends_with(".app") && !FileUtil::IsDirectory(path))
+                    files.push_back(path);
+                else if (FileUtil::IsDirectory(path)) // DLC keeps contents in numbered folders
+                    FileUtil::ForeachDirectoryEntry(
+                        nullptr, path,
+                        [&files](u64*, const std::string& sub_dir, const std::string& sub) {
+                            if (sub.ends_with(".app"))
+                                files.push_back(sub_dir + DIR_SEP + sub);
+                            return true;
+                        });
+                return true;
+            });
+    }
+    return files;
+}
+
+enum class ContentKind { Plain, Compressed, ConsoleEncrypted, Unreadable };
+
+ContentKind ContentFileKind(const std::string& path) {
+    FileUtil::IOFile file(path, "rb");
+    if (!file.IsOpen())
+        return ContentKind::Unreadable;
+    // stored encrypted with this console's own data: Azahar unwraps that before the compression,
+    // so such a file can't be compressed from outside
+    if (HW::UniqueData::IsUniqueCryptoFile(&file, HW::UniqueData::UniqueCryptoFileID::NCCH))
+        return ContentKind::ConsoleEncrypted;
+    file.Seek(0, SEEK_SET);
+    return FileUtil::Z3DSReadIOFile::IsZ3DSIOFile(&file) ? ContentKind::Compressed
+                                                         : ContentKind::Plain;
+}
+} // namespace
+
+int azh_convert_installed(uint64_t title_id, bool compress, azh_progress_fn progress,
+                          void* context, int* changed_out, int* skipped_out) {
+    int changed = 0, skipped = 0;
+    std::vector<std::pair<std::string, u64>> work;
+    u64 total = 0;
+    for (const auto& path : InstalledContentFiles(title_id)) {
+        const ContentKind kind = ContentFileKind(path);
+        if (kind == ContentKind::ConsoleEncrypted || kind == ContentKind::Unreadable) {
+            skipped++;
+            continue;
+        }
+        if ((kind == ContentKind::Compressed) == compress)
+            continue;
+        const u64 size = FileUtil::GetSize(path);
+        work.emplace_back(path, size);
+        total += size;
+    }
+    if (changed_out)
+        *changed_out = 0;
+    if (skipped_out)
+        *skipped_out = skipped;
+    if (work.empty())
+        return skipped ? AZH_CONVERT_UNSUPPORTED : (compress ? AZH_CONVERT_ALREADY : AZH_CONVERT_NOT_COMPRESSED);
+
+    u64 base = 0;
+    bool failed = false;
+    for (const auto& [path, size] : work) {
+        const std::string temp = path + ".hinoki-tmp";
+        // the compressor reports bytes of its input; decompressing reports bytes of the packed file
+        std::function<FileUtil::ProgressCallback> update = [&, size = size](std::size_t done,
+                                                                             std::size_t of) {
+            if (progress && total > 0)
+                progress(context, base + (of ? static_cast<u64>(done) * size / of : 0), total);
+        };
+        bool ok = compress ? FileUtil::CompressZ3DSFile(path, temp, {'N', 'C', 'C', 'H'},
+                                                        FileUtil::Z3DSWriteIOFile::DEFAULT_FRAME_SIZE,
+                                                        std::move(update))
+                           : FileUtil::DeCompressZ3DSFile(path, temp, std::move(update));
+        if (ok) {
+            const ContentKind result = ContentFileKind(temp);
+            ok = result == (compress ? ContentKind::Compressed : ContentKind::Plain);
+        }
+        if (ok)
+            ok = FileUtil::Rename(temp, path);
+        if (!ok) {
+            FileUtil::Delete(temp);
+            LOG_ERROR(Frontend, "Could not {} {}", compress ? "compress" : "decompress", path);
+            failed = true;
+        } else {
+            changed++;
+        }
+        base += size;
+    }
+    if (progress)
+        progress(context, total, total);
+    if (changed_out)
+        *changed_out = changed;
+    LOG_INFO(Frontend, "{} {:016X}: {} content files, {} skipped{}",
+             compress ? "Compressed" : "Decompressed", title_id, changed, skipped,
+             failed ? ", some failed" : "");
+    return failed ? AZH_CONVERT_FAILED : AZH_CONVERT_OK;
+}
+
+void azh_installed_state(uint64_t title_id, uint64_t* bytes, int* compressed_files, int* files) {
+    u64 total = 0;
+    int packed = 0, count = 0;
+    for (const auto& path : InstalledContentFiles(title_id)) {
+        total += FileUtil::GetSize(path);
+        count++;
+        if (ContentFileKind(path) == ContentKind::Compressed)
+            packed++;
+    }
+    if (bytes)
+        *bytes = total;
+    if (compressed_files)
+        *compressed_files = packed;
+    if (files)
+        *files = count;
+}
+
 bool azh_uninstall_title(uint64_t title_id) {
     const auto media = Service::AM::GetTitleMediaType(title_id);
     bool ok = Service::AM::UninstallProgram(media, title_id).IsSuccess();
@@ -1042,6 +1174,9 @@ void azh_set_setting(const char* key_c, const char* value_c) {
         v.region_value = number;
     } else if (key == "frame_limit") {
         v.frame_limit = real;
+    } else if (key == "compress_cia_installs") {
+        // CIAs installed from now on keep their contents in Azahar's compressed format
+        v.compress_cia_installs = ToBool(value);
     } else if (key == "async_shader_compilation") {
         v.async_shader_compilation = ToBool(value);
     } else if (key == "use_disk_shader_cache") {

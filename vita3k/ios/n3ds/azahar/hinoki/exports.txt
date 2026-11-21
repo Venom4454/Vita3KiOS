@@ -1,11 +1,13 @@
 _azh_api_version
 _azh_boot
+_azh_convert_installed
 _azh_convert_rom
 _azh_free
 _azh_game_icon_rgba
 _azh_game_info_json
 _azh_init
 _azh_install_cia
+_azh_installed_state
 _azh_installed_title_path
 _azh_installed_titles
 _azh_keyboard_result

@@ -14,7 +14,7 @@
 extern "C" {
 #endif
 
-#define AZH_API_VERSION 4
+#define AZH_API_VERSION 5
 
 // What Hinoki lends the core
 typedef struct azh_host {
@@ -42,6 +42,12 @@ enum {
     AZH_CONVERT_FAILED = 4,
 };
 int azh_convert_rom(const char *src, bool compress, azh_progress_fn progress, void *context, char *dst_out, size_t dst_size);
+// The same for an installed title (from a .cia), its update and its DLC: each content file is packed in
+// place (Azahar reads installed contents in its compressed format). Contents stored encrypted with the
+// console's own data are left as they are (*skipped). Slow: not on the main thread
+int azh_convert_installed(uint64_t title_id, bool compress, azh_progress_fn progress, void *context, int *changed, int *skipped);
+// Size on disk of an installed title with its update and DLC, and how many of its content files are packed
+void azh_installed_state(uint64_t title_id, uint64_t *bytes, int *compressed_files, int *files);
 
 int azh_api_version(void);
 // The Azahar version this library was built from

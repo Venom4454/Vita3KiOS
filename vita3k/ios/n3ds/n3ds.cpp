@@ -82,6 +82,8 @@ struct Core {
     AZH_FN(azh_save_states_json);
     AZH_FN(azh_keyboard_result);
     AZH_FN(azh_convert_rom);
+    AZH_FN(azh_convert_installed);
+    AZH_FN(azh_installed_state);
 #undef AZH_FN
 };
 
@@ -258,6 +260,8 @@ bool load_core() {
         AZH_BIND(azh_save_states_json);
         AZH_BIND(azh_keyboard_result);
         AZH_BIND(azh_convert_rom);
+        AZH_BIND(azh_convert_installed);
+        AZH_BIND(azh_installed_state);
 #undef AZH_BIND
         if (!complete || g_core.azh_api_version() != AZH_API_VERSION) {
             g_core.error = "The 3DS core in this build doesn't match the app.";
@@ -914,14 +918,46 @@ int v3k_n3ds_convert(const char *id, bool compress, void (*progress)(void *conte
     if (v3k_n3ds_running())
         return answer(AZH_CONVERT_FAILED, "Close the game first.");
     std::string file;
+    uint64_t installed_title = 0;
     {
         std::lock_guard lock(g_mutex);
         const Fields fields = read_fields(library_dir() / id / "info.txt");
         const auto kind = fields.find("kind");
-        if (kind != fields.end() && kind->second == "installed")
-            return answer(AZH_CONVERT_UNSUPPORTED, "Installed games (from a .cia) are kept by the 3DS system and can't be compressed.");
+        if (kind != fields.end() && kind->second == "installed") {
+            if (const auto title = fields.find("title_id"); title != fields.end())
+                installed_title = std::strtoull(title->second.c_str(), nullptr, 16);
+            if (!installed_title)
+                return answer(AZH_CONVERT_FAILED, "This game's title ID is missing.");
+        }
         if (const auto it = fields.find("file"); it != fields.end())
             file = it->second;
+    }
+    // Installed from a .cia: its content files (and its update's and DLC's) are packed in place
+    if (installed_title) {
+        uint64_t before = 0, after = 0;
+        g_core.azh_installed_state(installed_title, &before, nullptr, nullptr);
+        int changed = 0, skipped = 0;
+        const int status = g_core.azh_convert_installed(installed_title, compress, progress, context, &changed, &skipped);
+        g_core.azh_installed_state(installed_title, &after, nullptr, nullptr);
+        const std::string kept = skipped ? fmt::format(" {} file{} stored encrypted for this console stayed as {} were.", skipped, skipped == 1 ? "" : "s", skipped == 1 ? "it" : "they") : std::string();
+        switch (status) {
+        case AZH_CONVERT_OK:
+            break;
+        case AZH_CONVERT_UNSUPPORTED:
+            return answer(status, "This game's files are stored encrypted for this console and can't be compressed. Installing it again with \"Compress CIA installs\" on (3DS settings) stores it compressed.");
+        case AZH_CONVERT_ALREADY:
+            return answer(status, "This game is already compressed." + kept);
+        case AZH_CONVERT_NOT_COMPRESSED:
+            return answer(status, "This game is not compressed.");
+        default:
+            return answer(status, (compress ? std::string("Some files could not be compressed and stayed as they were.") : std::string("Some files could not be decompressed and stayed as they were.")) + kept);
+        }
+        LOG_INFO("3DS: {} installed {} ({} files, {} -> {} bytes)", compress ? "compressed" : "decompressed", id, changed, before, after);
+        if (compress) {
+            const double saved = before > after ? static_cast<double>(before - after) : 0.0;
+            return answer(status, fmt::format("Compressed: {:.0f} MB saved ({:.0f}% smaller). It plays as before.", saved / 1048576.0, before ? saved * 100.0 / static_cast<double>(before) : 0.0) + kept);
+        }
+        return answer(status, fmt::format("Decompressed: the game now takes {:.0f} MB.", static_cast<double>(after) / 1048576.0));
     }
     std::error_code ec;
     if (file.empty() || !fs::exists(file, ec))
@@ -1141,11 +1177,14 @@ char *v3k_n3ds_info_json(const char *id) {
     };
     std::error_code ec;
     uint64_t bytes = 0;
+    int packed = 0, contents = 0;
     if (const std::string file = get("file"); !file.empty())
         bytes = fs::file_size(file, ec);
-    return dup_string(fmt::format(R"({{"title":"{}","customTitle":"{}","publisher":"{}","regions":"{}","product":"{}","titleId":"{}","kind":"{}","file":"{}","bytes":{},"art":"{}"}})",
+    else if (get("kind") == "installed" && g_core.handle)
+        g_core.azh_installed_state(std::strtoull(get("title_id").c_str(), nullptr, 16), &bytes, &packed, &contents);
+    return dup_string(fmt::format(R"({{"title":"{}","customTitle":"{}","publisher":"{}","regions":"{}","product":"{}","titleId":"{}","kind":"{}","file":"{}","bytes":{},"art":"{}","packedContents":{},"contents":{}}})",
         json_escape(get("title")), json_escape(get("custom_title")), json_escape(get("publisher")), json_escape(get("regions")), json_escape(get("product")),
-        json_escape(get("title_id")), json_escape(get("kind")), json_escape(fs::path(get("file")).filename().string()), ec ? 0 : bytes, json_escape(get("art"))));
+        json_escape(get("title_id")), json_escape(get("kind")), json_escape(fs::path(get("file")).filename().string()), ec ? 0 : bytes, json_escape(get("art")), packed, contents));
 }
 
 bool v3k_n3ds_rename(const char *id, const char *title) {
