@@ -868,7 +868,9 @@ int v3k_compress_game(const char *title_id, bool compress, void (*progress)(void
 
 char *v3k_compress_state_json(const char *title_id) {
     auto *emuenv = ios::get_emuenv();
-    const auto app = emuenv && title_id ? ios::find_app_by_title_id(title_id) : nullptr;
+    if (!emuenv || !title_id)
+        return dup_string("{}");
+    const auto app = ios::find_app_by_title_id(title_id);
     if (!app)
         return dup_string("{}");
     const auto state = compressed_file::game_state(emuenv->vita_fs_path / "ux0/app" / app->path);

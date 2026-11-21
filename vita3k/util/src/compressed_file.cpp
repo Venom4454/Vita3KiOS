@@ -75,7 +75,8 @@ std::vector<uint8_t> &scratch(bool encode) {
     thread_local std::vector<uint8_t> enc, dec;
     auto &buf = encode ? enc : dec;
     if (buf.empty()) {
-        const size_t size = encode ? compression_encode_scratch_buffer_size(COMPRESSION_LZFSE) : compression_decode_scratch_buffer_size(COMPRESSION_LZFSE);
+        const auto algorithm = COMPRESSION_LZFSE;
+        const size_t size = encode ? compression_encode_scratch_buffer_size(algorithm) : compression_decode_scratch_buffer_size(algorithm);
         buf.resize(std::max<size_t>(size, 1));
     }
     return buf;
@@ -248,6 +249,10 @@ int cookie_close(void *cookie) {
     return 0;
 }
 #endif
+
+fs::recursive_directory_iterator walk(const fs::path &dir, std::error_code &ec) {
+    return fs::recursive_directory_iterator(dir, fs::directory_options::skip_permission_denied, ec);
+}
 
 fs::path temp_path(const fs::path &path) {
     fs::path temp = path;
@@ -473,8 +478,8 @@ bool should_compress(const fs::path &relative_path) {
     std::string extension = relative_path.extension().string();
     std::transform(extension.begin(), extension.end(), extension.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
     // Executables, and videos (played from their file by the video decoder, and compressed already)
-    for (const char *skip : { ".self", ".suprx", ".sprx", ".skprx", ".elf", ".bin_", ".mp4", ".m4v", ".pmf", ".mov", ".avi", ".mkv", ".webm",
-             ".wmv", ".mpg", ".mpeg", ".264", ".h264" }) {
+    static const char *const kept[] = { ".self", ".suprx", ".sprx", ".skprx", ".elf", ".bin_", ".mp4", ".m4v", ".pmf", ".mov", ".avi", ".mkv", ".webm", ".wmv", ".mpg", ".mpeg", ".264", ".h264" };
+    for (const char *skip : kept) {
         if (extension == skip)
             return false;
     }
@@ -487,8 +492,7 @@ GameReport convert_game(const fs::path &app_dir, bool compress_files, const std:
     std::error_code ec;
     std::vector<std::pair<fs::path, uint64_t>> work;
     uint64_t total = 0;
-    for (auto it = fs::recursive_directory_iterator(app_dir, fs::directory_options::skip_permission_denied, ec); !ec && it != fs::recursive_directory_iterator();
-         it.increment(ec)) {
+    for (auto it = walk(app_dir, ec); !ec && it != fs::recursive_directory_iterator(); it.increment(ec)) {
         if (!it->is_regular_file(ec))
             continue;
         const fs::path &path = it->path();
@@ -542,8 +546,7 @@ GameReport convert_game(const fs::path &app_dir, bool compress_files, const std:
         t.join();
     report.cancelled = cancelled(cancel);
 
-    for (auto it = fs::recursive_directory_iterator(app_dir, fs::directory_options::skip_permission_denied, ec); !ec && it != fs::recursive_directory_iterator();
-         it.increment(ec)) {
+    for (auto it = walk(app_dir, ec); !ec && it != fs::recursive_directory_iterator(); it.increment(ec)) {
         if (it->is_regular_file(ec))
             report.bytes_after += it->file_size(ec);
     }
@@ -555,8 +558,7 @@ GameReport convert_game(const fs::path &app_dir, bool compress_files, const std:
 GameState game_state(const fs::path &app_dir) {
     GameState state;
     std::error_code ec;
-    for (auto it = fs::recursive_directory_iterator(app_dir, fs::directory_options::skip_permission_denied, ec); !ec && it != fs::recursive_directory_iterator();
-         it.increment(ec)) {
+    for (auto it = walk(app_dir, ec); !ec && it != fs::recursive_directory_iterator(); it.increment(ec)) {
         if (!it->is_regular_file(ec))
             continue;
         const uint64_t stored = it->file_size(ec);
