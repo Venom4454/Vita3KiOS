@@ -468,3 +468,16 @@
 "Some games show a broken or oversized HUD in PS TV mode. Turn it off here for just this game." = "Manche Spiele zeigen im PS-TV-Modus ein kaputtes oder zu großes HUD. Schalte es hier nur für dieses Spiel aus.";
 "Off" = "Aus";
 "Made for a real PS Vita: not loaded in Hinoki, which already does its job or can't use it" = "Für eine echte PS Vita gemacht: wird in Hinoki nicht geladen, Hinoki erledigt das schon oder kann es nicht nutzen";
+"Compression" = "Komprimierung";
+"Decompress" = "Entpacken";
+"Compress" = "Komprimieren";
+"Compress game" = "Spiel komprimieren";
+"Compress new files" = "Neue Dateien komprimieren";
+"Compressing…" = "Wird komprimiert…";
+"Decompressing…" = "Wird entpackt…";
+"Compress this game?" = "Dieses Spiel komprimieren?";
+"%@ saved" = "%@ gespart";
+"Installed games (from a .cia) are kept by the 3DS system and can't be compressed." = "Installierte Spiele (aus einer .cia) verwaltet das 3DS-System; sie können nicht komprimiert werden.";
+"Packs the game's files to save space; it plays from them. Loading can take a little longer. Takes a few minutes for a big game, and Decompress brings the files back as they were." = "Packt die Dateien des Spiels, um Platz zu sparen; es läuft direkt daraus. Laden kann etwas länger dauern. Bei großen Spielen dauert es ein paar Minuten, und „Entpacken“ stellt die Dateien wieder her.";
+"Converts the game to the 3DS core's compressed format; it plays as before. Decompress brings back a plain file." = "Wandelt das Spiel in das komprimierte Format des 3DS-Kerns um; es läuft wie vorher. „Entpacken“ macht wieder eine normale Datei daraus.";
+"Keep Hinoki open until it's done. Each file is checked before it replaces the original, so stopping halfway leaves the game playable." = "Lass Hinoki offen, bis es fertig ist. Jede Datei wird geprüft, bevor sie das Original ersetzt; ein Abbruch lässt das Spiel spielbar.";

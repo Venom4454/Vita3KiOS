@@ -81,6 +81,7 @@ struct Core {
     AZH_FN(azh_load_state);
     AZH_FN(azh_save_states_json);
     AZH_FN(azh_keyboard_result);
+    AZH_FN(azh_convert_rom);
 #undef AZH_FN
 };
 
@@ -256,6 +257,7 @@ bool load_core() {
         AZH_BIND(azh_load_state);
         AZH_BIND(azh_save_states_json);
         AZH_BIND(azh_keyboard_result);
+        AZH_BIND(azh_convert_rom);
 #undef AZH_BIND
         if (!complete || g_core.azh_api_version() != AZH_API_VERSION) {
             g_core.error = "The 3DS core in this build doesn't match the app.";
@@ -896,6 +898,72 @@ bool v3k_n3ds_remove(const char *id) {
     }
     fs::remove_all(folder, ec);
     return true;
+}
+
+int v3k_n3ds_convert(const char *id, bool compress, void (*progress)(void *context, uint64_t done, uint64_t total), void *context,
+    char **message) {
+    const auto answer = [&](int status, const std::string &text) {
+        if (message)
+            *message = dup_string(text);
+        return status;
+    };
+    if (!id || !valid_id(id))
+        return answer(AZH_CONVERT_FAILED, "This game is not in the library.");
+    if (!load_core())
+        return answer(AZH_CONVERT_FAILED, g_core.error);
+    if (v3k_n3ds_running())
+        return answer(AZH_CONVERT_FAILED, "Close the game first.");
+    std::string file;
+    {
+        std::lock_guard lock(g_mutex);
+        const Fields fields = read_fields(library_dir() / id / "info.txt");
+        const auto kind = fields.find("kind");
+        if (kind != fields.end() && kind->second == "installed")
+            return answer(AZH_CONVERT_UNSUPPORTED, "Installed games (from a .cia) are kept by the 3DS system and can't be compressed.");
+        if (const auto it = fields.find("file"); it != fields.end())
+            file = it->second;
+    }
+    std::error_code ec;
+    if (file.empty() || !fs::exists(file, ec))
+        return answer(AZH_CONVERT_FAILED, "The game's file is missing.");
+    const uint64_t before = fs::file_size(file, ec);
+
+    char dst[2048] = {};
+    const int status = g_core.azh_convert_rom(file.c_str(), compress, progress, context, dst, sizeof(dst));
+    switch (status) {
+    case AZH_CONVERT_OK:
+        break;
+    case AZH_CONVERT_UNSUPPORTED:
+        return answer(status, "This file can't be compressed: it is still encrypted, or of a kind the 3DS core can't pack.");
+    case AZH_CONVERT_ALREADY:
+        return answer(status, "This game is already compressed.");
+    case AZH_CONVERT_NOT_COMPRESSED:
+        return answer(status, "This game is not compressed.");
+    default:
+        return answer(status, compress ? "Compressing failed. The game is unchanged." : "Decompressing failed. The game is unchanged.");
+    }
+
+    {
+        std::lock_guard lock(g_mutex);
+        const fs::path info = library_dir() / id / "info.txt";
+        Fields fields = read_fields(info);
+        if (fields.empty()) { // removed meanwhile
+            fs::remove(dst, ec);
+            return answer(AZH_CONVERT_FAILED, "This game is not in the library.");
+        }
+        fields["file"] = dst;
+        write_fields(info, fields);
+    }
+    // Only a file Hinoki imported is removed: one opened from elsewhere stays where the player put it
+    if (inside(file, games_dir()))
+        fs::remove(file, ec);
+    const uint64_t after = fs::file_size(dst, ec);
+    LOG_INFO("3DS: {} {} ({} -> {} bytes)", compress ? "compressed" : "decompressed", id, before, after);
+    if (compress) {
+        const double saved = before > after ? static_cast<double>(before - after) : 0.0;
+        return answer(status, fmt::format("Compressed: {:.0f} MB saved ({:.0f}% smaller). It plays as before.", saved / 1048576.0, before ? saved * 100.0 / static_cast<double>(before) : 0.0));
+    }
+    return answer(status, fmt::format("Decompressed: the game now takes {:.0f} MB.", static_cast<double>(after) / 1048576.0));
 }
 
 bool v3k_n3ds_import_keys(const char *path_c, char **message) {

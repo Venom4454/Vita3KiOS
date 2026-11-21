@@ -6,6 +6,7 @@
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <limits>
@@ -32,6 +33,7 @@
 #include "common/string_util.h"
 #include "common/thread.h"
 #include "common/vector_math.h"
+#include "common/zstd_compression.h"
 #include "core/core.h"
 #include "core/core_timing.h"
 #include "core/frontend/applets/default_applets.h"
@@ -922,6 +924,55 @@ char* azh_installed_titles(void) {
             out += fmt::format("{}|{:016X}\n", path, tid);
     }
     return dup(out);
+}
+
+int azh_convert_rom(const char* src_c, bool compress, azh_progress_fn progress, void* context, char* dst_out,
+                    size_t dst_size) {
+    if (!src_c || !dst_out || dst_size == 0)
+        return AZH_CONVERT_FAILED;
+    dst_out[0] = 0;
+    const std::string src = src_c;
+    if (Service::FS::IsInstalledApplication(src))
+        return AZH_CONVERT_UNSUPPORTED;
+    const auto info = Loader::GetLoaderFileInfo(src);
+    // Encrypted dumps and formats Azahar can't pack (.elf, .app) stay as they are
+    if (!info.is_valid || !info.is_compress_supported)
+        return AZH_CONVERT_UNSUPPORTED;
+    if (compress == info.is_compressed)
+        return compress ? AZH_CONVERT_ALREADY : AZH_CONVERT_NOT_COMPRESSED;
+
+    const std::string& extension =
+        compress ? info.recommended_compressed_extension : info.recommended_plain_extension;
+    std::string base = src;
+    if (const auto dot = base.find_last_of('.'); dot != std::string::npos &&
+                                                 base.find_last_of('/') < dot)
+        base.erase(dot);
+    std::string dst = base + "." + extension;
+    for (int n = 2; FileUtil::Exists(dst); n++)
+        dst = base + " (" + std::to_string(n) + ")." + extension;
+
+    std::function<FileUtil::ProgressCallback> update = [progress, context](std::size_t done,
+                                                                           std::size_t total) {
+        if (progress)
+            progress(context, done, total);
+    };
+    const bool ok =
+        compress ? FileUtil::CompressZ3DSFile(src, dst, info.underlying_magic,
+                                              info.default_compress_frame_size, std::move(update),
+                                              info.default_metadata)
+                 : FileUtil::DeCompressZ3DSFile(src, dst, std::move(update));
+    // The new file must open as the same kind of game before the old one goes
+    if (ok) {
+        const auto check = Loader::GetLoaderFileInfo(dst);
+        if (check.is_valid && check.is_compressed == compress) {
+            std::snprintf(dst_out, dst_size, "%s", dst.c_str());
+            LOG_INFO(Frontend, "{} {} -> {}", compress ? "Compressed" : "Decompressed", src, dst);
+            return AZH_CONVERT_OK;
+        }
+    }
+    FileUtil::Delete(dst);
+    LOG_ERROR(Frontend, "Could not {} {}", compress ? "compress" : "decompress", src);
+    return AZH_CONVERT_FAILED;
 }
 
 bool azh_uninstall_title(uint64_t title_id) {

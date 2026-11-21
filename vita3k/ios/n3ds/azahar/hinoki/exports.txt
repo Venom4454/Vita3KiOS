@@ -1,5 +1,6 @@
 _azh_api_version
 _azh_boot
+_azh_convert_rom
 _azh_free
 _azh_game_icon_rgba
 _azh_game_info_json

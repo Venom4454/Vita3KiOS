@@ -117,6 +117,12 @@ struct GameSettingsView: View {
     @State private var confirmDeleteMods = false
     @State private var confirmDeleteSave = false
     @State private var confirmDeleteGame = false
+    @StateObject private var compression: GameCompressionModel
+
+    init(app: GameApp) {
+        self.app = app
+        _compression = StateObject(wrappedValue: GameCompressionModel(system: .vita, id: app.titleId))
+    }
 
     private let resolutions: [Double] = [0.5, 0.75, 1, 1.5, 2, 3, 4]
     private let anisotropy = [1, 2, 4, 8, 16]
@@ -132,6 +138,7 @@ struct GameSettingsView: View {
                 cheatsSection
                 modsSection
                 storageSection
+                GameCompressionSection(model: compression) { model.reload() }
                 Section {
                     Button(role: .destructive) { confirmDeleteGame = true } label: {
                         Label("Delete game", systemImage: "trash")
@@ -144,6 +151,8 @@ struct GameSettingsView: View {
                 ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
             }
             .onAppear(perform: load)
+            .onAppear { compression.refresh() }
+            .modifier(GameCompressionPresenters(model: compression) { model.reload() })
             .hinokiImporter(isPresented: $importing, types: zipImport.types, purpose: zipImport.purpose) { urls in
                 guard let url = urls.first else { return }
                 let kind = zipImport

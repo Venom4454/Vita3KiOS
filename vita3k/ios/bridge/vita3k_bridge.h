@@ -22,6 +22,7 @@
 // Strings returned as char * are heap-allocated: release them with v3k_free_string.
 
 #include <stdbool.h>
+#include <stdint.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -58,6 +59,14 @@ int v3k_firmware_state(void);
 char *v3k_apps_json(void);
 void v3k_refresh_apps(void);
 bool v3k_delete_app(const char *title_id);
+// Packs an installed game's large files (LZFSE, in 64 KiB chunks: the game plays from them), or unpacks
+// them (compress false). Each file is replaced only after it was read back and matched. progress gets
+// bytes done / total. Returns 0 when done; *message says what happened (free with v3k_free_string).
+// Slow: run off the main thread
+int v3k_compress_game(const char *title_id, bool compress, void (*progress)(void *context, uint64_t done, uint64_t total), void *context,
+    char **message);
+// {"supported":bool,"compressedFiles":n,"storedBytes":n,"originalBytes":n}. Free with v3k_free_string
+char *v3k_compress_state_json(const char *title_id);
 void v3k_free_string(char *str);
 
 // Deletes the save data of an installed app

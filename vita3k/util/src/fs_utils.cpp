@@ -15,12 +15,14 @@
 // with this program; if not, write to the Free Software Foundation, Inc.,
 // 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 
+#include <util/compressed_file.h>
 #include <util/fs.h>
 #include <util/string_utils.h>
 
 #include <SDL3/SDL_iostream.h>
 
 #include <chrono>
+#include <cstring>
 
 namespace fs_utils {
 
@@ -92,6 +94,17 @@ static bool read_data(const fs::path &path, std::vector<T> &data) {
     if (size <= 0) {
         SDL_CloseIO(file);
         return false;
+    }
+
+    // A game file Hinoki compressed (util/compressed_file.h): its original content
+    if (size >= 48 && compressed_file::is_compressed(path)) {
+        SDL_CloseIO(file);
+        std::vector<uint8_t> original;
+        if (!compressed_file::read_all(path, original) || original.empty())
+            return false;
+        data.resize(original.size());
+        std::memcpy(data.data(), original.data(), original.size());
+        return true;
     }
 
     // Resize the vector to fit the file content

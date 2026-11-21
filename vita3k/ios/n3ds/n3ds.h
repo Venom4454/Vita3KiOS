@@ -99,6 +99,12 @@ bool v3k_n3ds_rename(const char *id, const char *title);
 bool v3k_n3ds_set_art(const char *id, const void *data, size_t size);
 // Games still without art: [{"id","title","product"}]. Free with v3k_free_string
 char *v3k_n3ds_games_without_art_json(void);
+// Packs a cartridge dump or homebrew into Azahar's compressed format (plays as it is), or back
+// (compress false). The library then points at the new file; the old one is removed when Hinoki imported
+// it. progress gets bytes done / total. Returns 0 when done, see AZH_CONVERT_* otherwise; *message is
+// what happened in plain words (free with v3k_free_string). Slow: run off the main thread
+int v3k_n3ds_convert(const char *id, bool compress, void (*progress)(void *context, uint64_t done, uint64_t total), void *context,
+    char **message);
 // Adds play time when a session ends
 void v3k_n3ds_session_ended(const char *id, double seconds);
 

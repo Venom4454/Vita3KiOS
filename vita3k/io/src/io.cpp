@@ -24,6 +24,7 @@
 #include <io/vfs.h>
 
 #include <rtc/rtc.h>
+#include <util/compressed_file.h>
 #include <util/log.h>
 #include <util/preprocessor.h>
 #include <util/string_utils.h>
@@ -495,7 +496,20 @@ SceUID open_file(IOState &io, const char *path, const int flags, const fs::path 
 
     const auto normalized_path = device::construct_normalized_path(device, translated_path);
 
-    auto stream = create_file(system_path, flags);
+    // A game file Hinoki compressed (util/compressed_file.h): read through a stream giving its original
+    // bytes. Writing to one (rare: games write to their save data, not to app0) unpacks it first
+    FilePtr stream(nullptr, std::fclose);
+    if (fs::is_regular_file(system_path) && compressed_file::is_compressed(system_path)) {
+        if (flags & (SCE_O_WRONLY | SCE_O_TRUNC | SCE_O_APPEND)) {
+            if (compressed_file::decompress(system_path) != compressed_file::Result::Done)
+                LOG_ERROR("Could not unpack compressed file {} for writing", system_path);
+            stream = create_file(system_path, flags);
+        } else {
+            stream = FilePtr(compressed_file::open_read(system_path), std::fclose);
+        }
+    } else {
+        stream = create_file(system_path, flags);
+    }
     if (!stream) {
         const int error = errno;
         LOG_ERROR("Failed to open file {} (target path: {}), host errno {}", system_path, path, error);
@@ -758,6 +772,9 @@ int stat_file(IOState &io, const char *file, SceIoStat *statp, const fs::path &v
 
     if (fs::is_regular_file(file_path)) {
         statp->st_size = fs::file_size(file_path);
+        // a game file Hinoki compressed: the size the game expects
+        if (uint64_t original = 0; statp->st_size >= 48 && compressed_file::is_compressed(file_path, &original))
+            statp->st_size = original;
         statp->st_attr = SCE_SO_IFREG;
         statp->st_mode |= SCE_S_IFREG;
     }

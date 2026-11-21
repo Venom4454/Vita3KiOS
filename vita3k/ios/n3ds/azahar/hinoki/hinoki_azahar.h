@@ -14,7 +14,7 @@
 extern "C" {
 #endif
 
-#define AZH_API_VERSION 3
+#define AZH_API_VERSION 4
 
 // What Hinoki lends the core
 typedef struct azh_host {
@@ -29,6 +29,19 @@ typedef struct azh_host {
     // One line of the core's log (level 0 trace ... 5 critical), also written to log/azahar_log.txt
     void (*log)(int level, const char *line);
 } azh_host;
+
+// Converting a cartridge dump or homebrew file to Azahar's compressed format (.zcci .zcxi .zcia .z3dsx,
+// zstd in seekable frames: plays as it is) or back. Writes next to the original, which stays: the
+// caller removes it. dst_out gets the new file's path. Slow: not on the main thread
+typedef void (*azh_progress_fn)(void *context, uint64_t done, uint64_t total);
+enum {
+    AZH_CONVERT_OK = 0,
+    AZH_CONVERT_UNSUPPORTED = 1, // installed, encrypted, or a kind of file Azahar can't pack
+    AZH_CONVERT_ALREADY = 2,
+    AZH_CONVERT_NOT_COMPRESSED = 3,
+    AZH_CONVERT_FAILED = 4,
+};
+int azh_convert_rom(const char *src, bool compress, azh_progress_fn progress, void *context, char *dst_out, size_t dst_size);
 
 int azh_api_version(void);
 // The Azahar version this library was built from

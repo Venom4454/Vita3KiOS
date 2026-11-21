@@ -499,3 +499,16 @@
 "Some games show a broken or oversized HUD in PS TV mode. Turn it off here for just this game." = "有些游戏在 PS TV 模式下 HUD 显示错乱或过大。可在此只为这个游戏关闭。";
 "Off" = "关";
 "Made for a real PS Vita: not loaded in Hinoki, which already does its job or can't use it" = "为真实 PS Vita 制作：Hinoki 不会加载它（已具备其功能或无法使用）";
+"Compression" = "压缩";
+"Decompress" = "解压";
+"Compress" = "压缩";
+"Compress game" = "压缩游戏";
+"Compress new files" = "压缩新文件";
+"Compressing…" = "正在压缩…";
+"Decompressing…" = "正在解压…";
+"Compress this game?" = "要压缩这个游戏吗？";
+"%@ saved" = "节省 %@";
+"Installed games (from a .cia) are kept by the 3DS system and can't be compressed." = "已安装的游戏（来自 .cia）由 3DS 系统保管，无法压缩。";
+"Packs the game's files to save space; it plays from them. Loading can take a little longer. Takes a few minutes for a big game, and Decompress brings the files back as they were." = "压缩游戏文件以节省空间，游戏可直接从中运行。加载可能稍慢。大型游戏需要几分钟，“解压”可恢复原来的文件。";
+"Converts the game to the 3DS core's compressed format; it plays as before. Decompress brings back a plain file." = "将游戏转换为 3DS 核心的压缩格式，运行方式不变。“解压”可恢复为普通文件。";
+"Keep Hinoki open until it's done. Each file is checked before it replaces the original, so stopping halfway leaves the game playable." = "请保持 Hinoki 打开直到完成。每个文件都会先校验再替换原文件，因此中途停止也不影响游戏运行。";

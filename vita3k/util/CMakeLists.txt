@@ -3,6 +3,7 @@ add_library(
 	STATIC
 	src/android_driver.cpp
 	src/arm.cpp
+	src/compressed_file.cpp
 	src/float_to_half.cpp
 	src/fs_utils.cpp
 	src/hash.cpp
@@ -20,6 +21,10 @@ add_library(
 target_include_directories(util PUBLIC include)
 target_link_libraries(util PUBLIC fmt spdlog http mem)
 target_link_libraries(util PRIVATE libcurl crypto SDL3::SDL3)
+if(APPLE)
+	# LZFSE for compressed game files (util/compressed_file.h)
+	target_link_libraries(util PUBLIC "-lcompression")
+endif()
 if(ANDROID)
 	target_link_libraries(util PUBLIC emuenv android xxHash::xxhash)
 	target_link_libraries(util PRIVATE adrenotools)

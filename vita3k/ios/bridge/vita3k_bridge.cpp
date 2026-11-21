@@ -45,6 +45,7 @@
 #include <packages/sfo.h>
 #include <patch/patch.h>
 #include <renderer/state.h>
+#include <util/compressed_file.h>
 #include <util/log.h>
 #include <util/string_utils.h>
 #include <util/vector_utils.h>
@@ -821,6 +822,58 @@ bool v3k_delete_app(const char *title_id) {
     app::delete_app(*emuenv, app->path);
     app::scan_apps(*emuenv);
     return true;
+}
+
+int v3k_compress_game(const char *title_id, bool compress, void (*progress)(void *context, uint64_t done, uint64_t total), void *context,
+    char **message) {
+    const auto answer = [&](int status, const std::string &text) {
+        if (message)
+            *message = dup_string(text);
+        return status;
+    };
+    auto *emuenv = ios::get_emuenv();
+    if (!emuenv || !title_id)
+        return answer(4, "Hinoki is still starting.");
+    const auto app = ios::find_app_by_title_id(title_id);
+    if (!app)
+        return answer(4, "This game is not installed.");
+    if (!compressed_file::supported())
+        return answer(1, "This build can't compress games.");
+    const fs::path app_dir = emuenv->vita_fs_path / "ux0/app" / app->path;
+    std::lock_guard lock(install_mutex);
+    LOG_INFO("{} {}...", compress ? "Compressing" : "Decompressing", app_dir);
+    const auto started = std::chrono::steady_clock::now();
+    const auto report = compressed_file::convert_game(app_dir, compress, [&](uint64_t done, uint64_t total) {
+        if (progress)
+            progress(context, done, total);
+    });
+    const double seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - started).count();
+    LOG_INFO("{} {}: {} files changed, {} left as they were, {} failed, {} -> {} bytes in {:.1f} s", compress ? "Compressed" : "Decompressed",
+        title_id, report.files, report.skipped, report.failed, report.bytes_before, report.bytes_after, seconds);
+    const double mb = 1024.0 * 1024.0;
+    std::string text;
+    if (compress) {
+        const double saved = report.bytes_before > report.bytes_after ? static_cast<double>(report.bytes_before - report.bytes_after) : 0.0;
+        text = report.files == 0 ? std::string("Nothing to compress: this game's files are compressed already, or don't shrink.")
+                                 : fmt::format("Compressed: {:.0f} MB saved ({:.0f}% smaller). It plays from the compressed files.", saved / mb,
+                                       report.bytes_before ? saved * 100.0 / static_cast<double>(report.bytes_before) : 0.0);
+    } else {
+        text = fmt::format("Decompressed: the game now takes {:.0f} MB.", static_cast<double>(report.bytes_after) / mb);
+    }
+    if (report.failed)
+        text += fmt::format(" {} file{} could not be changed and stayed as {} were.", report.failed, report.failed == 1 ? "" : "s",
+            report.failed == 1 ? "it" : "they");
+    return answer(report.failed ? 4 : 0, text);
+}
+
+char *v3k_compress_state_json(const char *title_id) {
+    auto *emuenv = ios::get_emuenv();
+    const auto app = emuenv && title_id ? ios::find_app_by_title_id(title_id) : nullptr;
+    if (!app)
+        return dup_string("{}");
+    const auto state = compressed_file::game_state(emuenv->vita_fs_path / "ux0/app" / app->path);
+    return dup_string(fmt::format(R"({{"supported":{},"compressedFiles":{},"storedBytes":{},"originalBytes":{}}})",
+        compressed_file::supported() ? "true" : "false", state.compressed_files, state.stored_bytes, state.original_bytes));
 }
 
 bool v3k_delete_save_data(const char *title_id) {

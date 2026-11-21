@@ -445,10 +445,12 @@ struct N3DSGameDetailsView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var confirmDelete = false
     @StateObject private var extras: N3DSExtrasModel
+    @StateObject private var compression: GameCompressionModel
 
     init(app: GameApp) {
         self.app = app
         _extras = StateObject(wrappedValue: N3DSExtrasModel(app: app))
+        _compression = StateObject(wrappedValue: GameCompressionModel(system: .n3ds, id: app.titleId))
     }
 
     var body: some View {
@@ -489,6 +491,7 @@ struct N3DSGameDetailsView: View {
                 if app.version != "Homebrew" {
                     N3DSGameExtrasSections(extras: extras)
                 }
+                GameCompressionSection(model: compression) { model.reload() }
                 Section {
                     Button("Delete game", role: .destructive) { confirmDelete = true }
                 } footer: {
@@ -502,7 +505,11 @@ struct N3DSGameDetailsView: View {
             }
             // once, for the whole page: on the rows these were copied onto every section
             .modifier(N3DSExtrasPresenters(extras: extras))
-            .onAppear { extras.load() }
+            .modifier(GameCompressionPresenters(model: compression) { model.reload() })
+            .onAppear {
+                extras.load()
+                compression.refresh()
+            }
             .confirmationDialog("Delete \(app.title)?", isPresented: $confirmDelete, titleVisibility: .visible) {
                 Button("Delete", role: .destructive) {
                     _ = v3k_n3ds_remove(app.titleId)
