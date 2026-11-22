@@ -497,7 +497,11 @@ int main(int argc, char *argv[]) {
         renderer::vulkan::on_persistent_device_lost() = +[] { v3k_pad_request_exit(); };
         thermal::keep_cool() = ios::keep_cool_enabled();
         // read by the renderer when the game starts (PVRTC sampled by the GPU, or decompressed)
-        setenv("V3K_NATIVE_PVRTC", ios::native_textures_enabled() ? "1" : "0", 1);
+        // A game's fix line can turn it off for that game (native-pvrtc=off) or on (native-pvrtc=on)
+        const int pvrtc_fix = v3k_game_fix_flag(title_id.c_str(), "native-pvrtc");
+        setenv("V3K_NATIVE_PVRTC", (pvrtc_fix == -1 ? ios::native_textures_enabled() : pvrtc_fix == 1) ? "1" : "0", 1);
+        // Vertex programs' own clip planes (v1.6.0) can be dropped for one game: clip-planes=off
+        setenv("V3K_CLIP_PLANES", v3k_game_fix_flag(title_id.c_str(), "clip-planes") == 0 ? "0" : "1", 1);
         // Accurate CPU, for games whose fix asks for it (game fixes list: accurate-cpu=on)
         set_ios_accurate_cpu(v3k_game_fix_flag(title_id.c_str(), "accurate-cpu") == 1);
         // Read when the renderer starts: vertex attribute realignment for Metal (on unless a game's fix

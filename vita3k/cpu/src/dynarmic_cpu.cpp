@@ -836,13 +836,17 @@ public:
         case Dynarmic::A32::Exception::Yield:
             break;
         case Dynarmic::A32::Exception::UndefinedInstruction:
-            LOG_WARN("Undefined instruction at address 0x{:X}, instruction 0x{:X} ({})", pc, MemoryReadCode(pc).value(), disassemble(*parent, pc, nullptr));
-            InterpreterFallback(pc, 1);
+        case Dynarmic::A32::Exception::UnpredictableInstruction: {
+            // Skipped (dynarmic continues after it). Logged a few times only: a game running one in a loop
+            // (system instructions the JIT can't interpret, patch 0006) filled the log and slowed down
+            static std::atomic<int> logged{ 0 };
+            if (logged.fetch_add(1, std::memory_order_relaxed) < 16) {
+                LOG_WARN("{} instruction at address 0x{:X}, instruction 0x{:X} ({}), skipped", exception == Dynarmic::A32::Exception::UndefinedInstruction ? "Undefined" : "Unpredictable",
+                    pc, MemoryReadCode(pc).value_or(0), disassemble(*parent, pc, nullptr));
+                InterpreterFallback(pc, 1);
+            }
             break;
-        case Dynarmic::A32::Exception::UnpredictableInstruction:
-            LOG_WARN("Unpredictable instruction at address 0x{:X}, instruction 0x{:X} ({})", pc, MemoryReadCode(pc).value(), disassemble(*parent, pc, nullptr));
-            InterpreterFallback(pc, 1);
-            break;
+        }
         case Dynarmic::A32::Exception::DecodeError:
             LOG_WARN("Decode error at address 0x{:X}, instruction 0x{:X} ({})", pc, MemoryReadCode(pc).value(), disassemble(*parent, pc, nullptr));
             InterpreterFallback(pc, 1);

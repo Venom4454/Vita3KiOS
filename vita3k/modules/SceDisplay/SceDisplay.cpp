@@ -99,7 +99,15 @@ EXPORT(SceInt32, _sceDisplayGetMaximumFrameBufResolution, SceInt32 *width, SceIn
     TRACY_FUNC(_sceDisplayGetMaximumFrameBufResolution, width, height);
     if (!width || !height)
         return 0;
-    if (emuenv.cfg.current_config.pstv_mode) {
+#if defined(VITA3K_PLATFORM_IOS)
+    // PS TV mode on iOS is there for the controller (L2/R2/L3/R3) while the picture stays on the phone:
+    // answering 1920x1088 made games lay out and size their HUD for a TV (broken or oversized HUDs since
+    // v1.6.0 applied the global switch to every game). The handheld answer below is kept
+    const bool tv_framebuffer = false;
+#else
+    const bool tv_framebuffer = emuenv.cfg.current_config.pstv_mode;
+#endif
+    if (tv_framebuffer) {
         *width = 1920;
         *height = 1088;
     } else {

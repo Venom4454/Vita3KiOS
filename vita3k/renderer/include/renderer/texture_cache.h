@@ -58,11 +58,12 @@ typedef std::array<uint32_t, 4> TextureGxmDataRepr;
 struct TextureCacheInfo {
     // frame in which a draw last used this texture (see TextureCache::current_frame)
     uint64_t last_use_frame = 0;
-    // scene (TextureCache::hash_epoch) in which its data was last hashed: once per scene is enough (the
-    // Vita's GPU reads a texture when it runs the scene, not at each draw call), so a texture shared by
-    // the scene's draws is hashed once instead of for every draw that binds it
+    // scene (TextureCache::hash_epoch) in which its whole mip chain was last hashed (the first level is
+    // hashed at every draw, see first_mip_hash)
     uint64_t hashed_epoch = UINT64_MAX;
     uint64_t hash = 0;
+    // hash of the first level alone (checked at every draw; equals hash without a mip chain)
+    uint64_t first_mip_hash = 0;
     SceGxmTexture texture;
     int index = 0;
     uint32_t texture_size = 0;

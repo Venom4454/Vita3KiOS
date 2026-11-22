@@ -724,11 +724,15 @@ void TextureCache::cache_and_bind_texture(const SceGxmTexture &gxm_texture, MemS
 
         info->use_hash = should_use_hash;
         if (info->use_hash) {
-            if (import_textures || export_textures)
+            if (import_textures || export_textures) {
                 info->hash = hash_texture_nostride(gxm_texture, mem);
-            else
+                info->first_mip_hash = info->hash;
+            } else {
                 // the xor 1 is to make sure it won't be the same as hash_texture_nostride
                 info->hash = hash_texture_data(gxm_texture, info->texture_size, mem) ^ 1;
+                const uint32_t first_size = gxm::texture_size_first_mip(gxm_texture);
+                info->first_mip_hash = first_size < info->texture_size ? hash_texture_data(gxm_texture, first_size, mem) ^ 1 : info->hash;
+            }
             info->hashed_epoch = hash_epoch;
         }
     } else {
@@ -736,16 +740,28 @@ void TextureCache::cache_and_bind_texture(const SceGxmTexture &gxm_texture, MemS
         index = cached_gxm_texture_index;
         info = gxm_it->second;
         configure = false;
-        if (info->use_hash && info->hashed_epoch == hash_epoch) {
-            // already checked (and uploaded if it changed) by an earlier draw of this scene: hashing the
-            // whole texture again for every draw that binds it was a large share of the render thread
-            upload = false;
+        if (info->use_hash && !import_textures && !export_textures) {
+            // The first level is checked at every draw, as before v1.6.0: a game that writes into a texture
+            // between two draws of a scene (glyphs added to a font atlas, a HUD texture filled in) needs the
+            // later draws to see it, and checking once per scene left HUDs and text stale. The rest of the
+            // mip chain is checked once per scene (games rewrite it along with the first level)
+            const uint32_t first_size = gxm::texture_size_first_mip(gxm_texture);
+            const bool whole_chain = first_size < info->texture_size;
+            const uint64_t previous_first = info->first_mip_hash;
+            info->first_mip_hash = hash_texture_data(gxm_texture, whole_chain ? first_size : info->texture_size, mem) ^ 1;
+            upload = previous_first != info->first_mip_hash;
+            if (!whole_chain) {
+                info->hash = info->first_mip_hash;
+            } else if (upload || info->hashed_epoch != hash_epoch) {
+                const uint64_t previous_hash = info->hash;
+                info->hash = hash_texture_data(gxm_texture, info->texture_size, mem) ^ 1;
+                upload = upload || previous_hash != info->hash;
+            }
+            info->hashed_epoch = hash_epoch;
         } else if (info->use_hash) {
             const uint64_t previous_hash = info->hash;
-            if (import_textures || export_textures)
-                info->hash = hash_texture_nostride(gxm_texture, mem);
-            else
-                info->hash = hash_texture_data(gxm_texture, info->texture_size, mem) ^ 1;
+            info->hash = hash_texture_nostride(gxm_texture, mem);
+            info->first_mip_hash = info->hash;
             info->hashed_epoch = hash_epoch;
 
             upload = previous_hash != info->hash;
@@ -856,6 +872,9 @@ void TextureCache::keep_within_budget(const TextureCacheInfo *keep) {
         // Drop the least recently used textures until the cache fits; they are uploaded again if used
         uint32_t dropped = 0;
         const uint64_t before = memory_used;
+        // Past a quarter over the budget (a scene bigger than the budget, or a low-memory warning that
+        // lowered it), recent textures go too: running out of memory closes the game, re-uploading doesn't
+        const bool over_ceiling = memory_used > memory_budget + memory_budget / 4;
         texture_queue.for_each_from_lru([&](TextureCacheInfo *candidate) {
             if (memory_used <= memory_budget - memory_budget / 8)
                 return false;
@@ -863,7 +882,7 @@ void TextureCache::keep_within_budget(const TextureCacheInfo *keep) {
             // on, everything left is needed right now (dropping it uploads it again next frame, and the
             // dropped copy stays in memory until the GPU is done with it)
             constexpr uint64_t RECENT_FRAMES = 4;
-            if (current_frame - candidate->last_use_frame < RECENT_FRAMES)
+            if (!over_ceiling && current_frame - candidate->last_use_frame < RECENT_FRAMES)
                 return false;
             if (candidate == keep || candidate->texture_size == 0)
                 return true;

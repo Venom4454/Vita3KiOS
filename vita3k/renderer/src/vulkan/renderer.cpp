@@ -926,7 +926,9 @@ bool VKState::create(std::unique_ptr<renderer::State> &state, const Config &conf
 #endif
         // A vertex program's own clip planes (Ninja Gaiden Sigma 2's health bar and other clipped 2D parts
         // are cut with them) were dropped: clip distances need only the device feature
-        features.support_gxm_clip_planes = static_cast<bool>(physical_device_features.shaderClipDistance);
+        // V3K_CLIP_PLANES=0 (a game's fix line clip-planes=off) drops them for one game, as before v1.6.0
+        const char *clip_env = getenv("V3K_CLIP_PLANES");
+        features.support_gxm_clip_planes = static_cast<bool>(physical_device_features.shaderClipDistance) && !(clip_env && clip_env[0] == '0');
         LOG_INFO("Vertex program clip planes: {}", features.support_gxm_clip_planes ? "translated (gl_ClipDistance)" : "dropped (GPU has no shaderClipDistance)");
 
         vk::StructureChain<vk::DeviceCreateInfo,

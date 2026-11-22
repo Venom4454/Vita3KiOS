@@ -11,6 +11,8 @@
 #           vertex-realign, v-sync (on/off), resolution (0.5 to 4), screen-filter (Nearest, Bilinear, Bicubic, FXAA)
 #           precise-math=on: no Metal fast math at all (lighting that is too bright or flickers)
 #           vertex-realign=off: only if a game's models break since vertex realignment (v1.2.0)
+#           native-pvrtc=off: PVRTC textures decompressed for this game, as before v1.6.0 (textures that look wrong)
+#           clip-planes=off: a vertex program's own clip planes dropped, as before v1.6.0 (geometry cut away)
 # Lines starting with # are ignored.
 
 # Gravity Rush (US, EU): without surface sync the bloom builds up and scenes are far too bright
@@ -55,8 +57,10 @@ PCSG00738 fast-cpu=off surface-sync=off high-accuracy=off fps-hack=off | Exact f
 # (floating-point shortcuts, on by default in v1.4.0) garbles them; forced off even with the player's settings
 PCSE00305 fast-cpu=off high-accuracy=off | Exact floating point: clean voice lines (the voice decoder is floating point); high accuracy off for speed
 
-# Borderlands 2: high accuracy only slows it down
-PCSE00383 high-accuracy=off | High accuracy off: faster, nothing it draws needs it
+# Borderlands 2: high accuracy only slows it down. Rendering broke in v1.6.0: native PVRTC (new in v1.6.0) was the
+# change in play for its textures, so they are decoded as before. Leading guess, untested
+PCSE00383 high-accuracy=off native-pvrtc=off | High accuracy off (faster); compressed textures decoded as before v1.6.0
+PCSF00570 high-accuracy=off native-pvrtc=off | High accuracy off (faster); compressed textures decoded as before v1.6.0
 # Soul Sacrifice Delta: the character on the customisation screen draws solid white (fast maths turning lighting into NaN, as Persona 4's white ground). Leading guess, untested
 PCSA00152 precise-math=on | Precise shader math: for the solid white character on the customisation screen
 PCSF00532 precise-math=on | Precise shader math: for the solid white character on the customisation screen
