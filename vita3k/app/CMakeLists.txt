@@ -14,6 +14,17 @@ add_library(
 )
 
 target_include_directories(app PUBLIC include)
+
+# The game fixes list built in for when it can't be downloaded: the same file as the one online
+# (dist/game-fixes.txt), read when CMake runs, so the two can't drift apart
+set(HINOKI_GAME_FIXES "${CMAKE_CURRENT_SOURCE_DIR}/../../dist/game-fixes.txt")
+if(EXISTS "${HINOKI_GAME_FIXES}")
+	file(READ "${HINOKI_GAME_FIXES}" HINOKI_GAME_FIXES_TEXT)
+	set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${HINOKI_GAME_FIXES}")
+	file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/generated/app/default_game_fixes.inc" "R\"HINOKIFIXES(${HINOKI_GAME_FIXES_TEXT})HINOKIFIXES\"\n")
+	target_include_directories(app PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated")
+	target_compile_definitions(app PRIVATE HINOKI_DEFAULT_FIXES_FILE)
+endif()
 target_include_directories(app PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/..)
 target_link_libraries(app PUBLIC emuenv mem cpu)
 if(USE_DISCORD_RICH_PRESENCE)

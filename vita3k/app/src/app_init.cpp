@@ -243,7 +243,12 @@ static Config::CurrentConfig get_runtime_current_config_after_save(
 }
 
 #if defined(VITA3K_PLATFORM_IOS)
-// Used until the list has been downloaded once (same lines as dist/game-fixes.txt at release)
+// Used until the list has been downloaded once: dist/game-fixes.txt as it was at build time
+#if defined(HINOKI_DEFAULT_FIXES_FILE)
+static constexpr const char *DEFAULT_GAME_FIXES =
+#include <app/default_game_fixes.inc>
+    ;
+#else
 static constexpr const char *DEFAULT_GAME_FIXES = R"(PCSA00011 surface-sync=on | Surface sync on: fixes the over-bright bloom
 PCSF00024 surface-sync=on | Surface sync on: fixes the over-bright bloom
 PCSE00120 memory-mapping=off | GPU memory mapping off: removes the spikes in 3D scenes
@@ -255,6 +260,7 @@ PCSD00071 memory-mapping=on native-buffer=off surface-sync=off high-accuracy=off
 PCSC00045 memory-mapping=on native-buffer=off surface-sync=off high-accuracy=off fps-hack=on cpu-opt=on | Double-buffer memory mapping with surface sync and high accuracy off: about twice the frame rate in testing
 PCSE00084 memory-mapping=on native-buffer=on surface-sync=off surface-sync-safe=on high-accuracy=off async-shaders=on cpu-opt=on fast-cpu=off | Native buffer and surface sync: sky, crowd and sideline players drawn into textures show up; background shaders; high accuracy off
 )";
+#endif
 
 bool find_game_fix(const fs::path &file, const std::string &title_id, GameFix &fix) {
     std::ifstream file_in(file);
