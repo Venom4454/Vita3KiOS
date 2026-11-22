@@ -74,6 +74,9 @@ struct LibraryView: View {
     @AppStorage("v3k.musicEnabled") private var musicEnabled = true
     @AppStorage("v3k.theme") private var themeName = AppTheme.midnight.rawValue
     @AppStorage("v3k.librarySort") private var sortMode = "title"
+    /// Starred games, kept at the top of the library (title IDs, comma-separated)
+    @AppStorage("v3k.favorites") private var favoritesRaw = ""
+    @ObservedObject private var updater = Updater.shared
     @AppStorage("v3k.vitaHome") private var vitaHome = false
 
     @State private var search = ""
@@ -94,10 +97,21 @@ struct LibraryView: View {
         let apps = search.isEmpty ? model.apps : model.apps.filter {
             $0.title.localizedCaseInsensitiveContains(search) || $0.titleId.localizedCaseInsensitiveContains(search)
         }
-        if sortMode == "recent" {
-            return apps.sorted { ($0.lastPlayed, $1.title) > ($1.lastPlayed, $0.title) }
-        }
-        return apps
+        let sorted = sortMode == "recent" ? apps.sorted { ($0.lastPlayed, $1.title) > ($1.lastPlayed, $0.title) } : apps
+        let starred = favorites
+        guard !starred.isEmpty else { return sorted }
+        // starred games first, each group in the chosen order
+        return sorted.filter { starred.contains($0.titleId) } + sorted.filter { !starred.contains($0.titleId) }
+    }
+
+    private var favorites: Set<String> {
+        Set(favoritesRaw.split(separator: ",").map(String.init))
+    }
+
+    private func toggleFavorite(_ app: GameApp) {
+        var set = favorites
+        if set.contains(app.titleId) { set.remove(app.titleId) } else { set.insert(app.titleId) }
+        favoritesRaw = set.sorted().joined(separator: ",")
     }
 
     var body: some View {
@@ -136,10 +150,17 @@ struct LibraryView: View {
                         } else {
                             LazyVGrid(columns: [GridItem(.adaptive(minimum: 150, maximum: 220), spacing: 18)], spacing: 22) {
                                 ForEach(filteredApps) { app in
-                                    GameCard(app: app)
+                                    GameCard(app: app, favorite: favorites.contains(app.titleId))
                                         .onTapGesture { requestLaunch(app) }
                                         .contextMenu {
                                             Button { requestLaunch(app) } label: { Label("Play", systemImage: "play.fill") }
+                                            Button { toggleFavorite(app) } label: {
+                                                if favorites.contains(app.titleId) {
+                                                    Label("Remove from favorites", systemImage: "star.slash")
+                                                } else {
+                                                    Label("Add to favorites", systemImage: "star")
+                                                }
+                                            }
                                             Button { gameDetails = app } label: {
                                                 Label("Game settings, patches, cheats & mods", systemImage: "slider.horizontal.3")
                                             }
@@ -214,6 +235,9 @@ struct LibraryView: View {
             .sheet(item: $model.crashReport) { report in
                 CrashReportView(report: report)
             }
+            .sheet(item: $updater.available) { release in
+                UpdateSheet(release: release)
+            }
             .onChange(of: model.launchRequested) { _, app in
                 guard let app else { return }
                 model.launchRequested = nil
@@ -222,6 +246,7 @@ struct LibraryView: View {
             }
             .onAppear {
                 model.checkForCrashReport()
+                updater.checkIfDue()
                 LibraryHost.updateOrientation()
             }
             .onChange(of: vitaHome) { _, _ in LibraryHost.updateOrientation() }
@@ -278,6 +303,7 @@ struct LibraryView: View {
 
 struct GameCard: View {
     let app: GameApp
+    var favorite = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -296,6 +322,17 @@ struct GameCard: View {
             .aspectRatio(1, contentMode: .fit)
             .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).stroke(.white.opacity(0.08), lineWidth: 1))
+            .overlay(alignment: .topTrailing) {
+                if favorite {
+                    Image(systemName: "star.fill")
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(.yellow)
+                        .padding(7)
+                        .background(.black.opacity(0.45), in: Circle())
+                        .padding(8)
+                        .accessibilityLabel("Favorite")
+                }
+            }
             .shadow(color: Theme.accent.opacity(0.25), radius: 14, y: 6)
 
             Text(app.title)

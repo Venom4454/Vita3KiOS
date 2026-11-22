@@ -169,6 +169,10 @@ struct SettingsPage: Identifiable {
             },
         ]),
         Group(title: "About", pages: [
+            page("updates", "Updates", "Check for a new version, install it", "arrow.down.circle.fill", .green,
+                 "update updates new version release install download github livecontainer trollstore sidestore altstore") {
+                SettingsForm("Updates") { UpdatesSection() }
+            },
             page("about", "About Hinoki", "Version, logs, credits, Discord", "info.circle.fill", .gray,
                  "about version logs log crash report credits vita3k tsubomi azahar discord ko-fi support") {
                 SettingsForm("About Hinoki") {

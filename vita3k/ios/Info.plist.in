@@ -221,6 +221,8 @@
 		<string>stosdebug</string>
 		<string>apple-magnifier</string>
 		<string>livecontainer</string>
+		<string>sidestore</string>
+		<string>altstore</string>
 	</array>
 	<key>CFBundleURLTypes</key>
 	<array>

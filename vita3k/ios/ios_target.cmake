@@ -23,6 +23,7 @@ set(VITA3K_IOS_SWIFT_SOURCES
 	ios/ui/N3DSArt.swift
 	ios/ui/N3DSGameExtras.swift
 	ios/ui/GameCompression.swift
+	ios/ui/Updater.swift
 	ios/ui/MenuMusic.swift
 	ios/ui/GameSettingsView.swift
 	ios/ui/PerformanceHUD.swift

@@ -404,6 +404,13 @@ static bool is_existence_probe(const char *export_name) {
     return export_name && (std::strcmp(export_name, "sceAppUtilSaveDataSlotGetParam") == 0 || std::strcmp(export_name, "sceAppUtilSaveDataSlotSearch") == 0);
 }
 
+// Only installed games' folders (ux0/app/<title ID>) can hold files Hinoki compressed: other opens and
+// stats (save data, system files) skip the extra read of a header
+static bool in_installed_game(const fs::path &path) {
+    const std::string text = path.generic_string();
+    return text.find("/ux0/app/") != std::string::npos;
+}
+
 SceUID open_file(IOState &io, const char *path, const int flags, const fs::path &vita_fs_path, const char *export_name) {
     std::string relative_storage;
     path = with_working_directory(path, relative_storage);
@@ -499,7 +506,7 @@ SceUID open_file(IOState &io, const char *path, const int flags, const fs::path 
     // A game file Hinoki compressed (util/compressed_file.h): read through a stream giving its original
     // bytes. Writing to one (rare: games write to their save data, not to app0) unpacks it first
     FilePtr stream(nullptr, std::fclose);
-    if (fs::is_regular_file(system_path) && compressed_file::is_compressed(system_path)) {
+    if (in_installed_game(system_path) && fs::is_regular_file(system_path) && compressed_file::is_compressed(system_path)) {
         if (flags & (SCE_O_WRONLY | SCE_O_TRUNC | SCE_O_APPEND)) {
             if (compressed_file::decompress(system_path) != compressed_file::Result::Done)
                 LOG_ERROR("Could not unpack compressed file {} for writing", system_path);
@@ -773,7 +780,7 @@ int stat_file(IOState &io, const char *file, SceIoStat *statp, const fs::path &v
     if (fs::is_regular_file(file_path)) {
         statp->st_size = fs::file_size(file_path);
         // a game file Hinoki compressed: the size the game expects
-        if (uint64_t original = 0; statp->st_size >= 48 && compressed_file::is_compressed(file_path, &original))
+        if (uint64_t original = 0; statp->st_size >= 48 && in_installed_game(file_path) && compressed_file::is_compressed(file_path, &original))
             statp->st_size = original;
         statp->st_attr = SCE_SO_IFREG;
         statp->st_mode |= SCE_S_IFREG;

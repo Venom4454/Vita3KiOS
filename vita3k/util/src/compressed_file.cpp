@@ -24,6 +24,10 @@
 #include <mutex>
 #include <thread>
 
+#if defined(__APPLE__) || defined(__linux__)
+#include <unistd.h>
+#endif
+
 #if defined(__APPLE__)
 #include <compression.h>
 #define HCZ_CODEC 1 // LZFSE
@@ -174,6 +178,23 @@ private:
     explicit Reader(FILE *f)
         : file(f) {}
 
+    // One positioned read (pread) per chunk instead of a seek and a buffered read
+    bool read_at(uint8_t *out, uint64_t length, uint64_t offset) {
+#if defined(__APPLE__) || defined(__linux__)
+        const int fd = fileno(file);
+        uint64_t done = 0;
+        while (done < length) {
+            const ssize_t n = pread(fd, out + done, static_cast<size_t>(length - done), static_cast<off_t>(offset + done));
+            if (n <= 0)
+                return false;
+            done += static_cast<uint64_t>(n);
+        }
+        return true;
+#else
+        return std::fseek(file, static_cast<long>(offset), SEEK_SET) == 0 && std::fread(out, 1, length, file) == length;
+#endif
+    }
+
     uint64_t chunk_length(uint64_t chunk) const {
         return std::min<uint64_t>(header.chunk_size, header.size - chunk * header.chunk_size);
     }
@@ -190,14 +211,12 @@ private:
         const uint64_t original = chunk_length(chunk);
         const uint64_t stored = index[chunk + 1] - index[chunk];
         slot.data.resize(header.chunk_size);
-        if (std::fseek(file, static_cast<long>(index[chunk]), SEEK_SET) != 0)
-            return nullptr;
         if (stored == original) {
-            if (std::fread(slot.data.data(), 1, original, file) != original)
+            if (!read_at(slot.data.data(), original, index[chunk]))
                 return nullptr;
         } else {
             packed.resize(stored);
-            if (std::fread(packed.data(), 1, stored, file) != stored || !decode(packed.data(), stored, slot.data.data(), original))
+            if (!read_at(packed.data(), stored, index[chunk]) || !decode(packed.data(), stored, slot.data.data(), original))
                 return nullptr;
         }
         slot.chunk = static_cast<int64_t>(chunk);

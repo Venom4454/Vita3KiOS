@@ -173,6 +173,13 @@ done
 commit="$(git -C "$repo_root" rev-parse --short HEAD)"
 "$pb" -c "Delete :V3KCommit" "$plist" 2> /dev/null || true
 "$pb" -c "Add :V3KCommit string $commit" "$plist"
+# The in-app updater compares version numbers in releases, commits in test builds
+"$pb" -c "Delete :V3KRelease" "$plist" 2> /dev/null || true
+if [[ "${VITA3KIOS_RELEASE:-0}" == 1 ]]; then
+    "$pb" -c "Add :V3KRelease bool true" "$plist"
+else
+    "$pb" -c "Add :V3KRelease bool false" "$plist"
+fi
 echo "Version $version ($build_number), commit $commit"
 
 mkdir -p "$output_dir"
