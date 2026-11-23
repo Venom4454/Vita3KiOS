@@ -259,6 +259,10 @@ final class MouseLookStick {
             begin(at: point, time: time)
             return
         }
+        // A resting finger still reports sub-point jitter: below this it counts as still (the stop timer
+        // brings the stick back), and the movement adds up until it is real
+        let travel = hypot(point.x - previous.x, point.y - previous.y)
+        guard travel >= 0.75 else { return }
         // touches come every 8-16 ms; a longer gap means the finger had stopped
         let dt = min(max(time - lastTime, 1.0 / 240), 0.05)
         last = point

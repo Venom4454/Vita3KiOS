@@ -972,6 +972,9 @@ final class ControlsOverlayView: UIView {
     /// Moves and scales each group from its default place, kept on screen
     private func applyPlacements(in area: CGRect) {
         for group in ControlGroup.allCases {
+            // single-button moves count only while Advanced touch › Move buttons one by one is on (off,
+            // the editor shows the groups and couldn't undo them)
+            if group.isSingleButton && !separateButtons { continue }
             let placement = self.placement(of: group)
             guard placement != GroupPlacement() else { continue }
             let members = views(of: group)
