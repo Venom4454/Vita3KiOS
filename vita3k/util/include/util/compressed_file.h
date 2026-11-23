@@ -42,6 +42,11 @@ bool supported();
 // The file is one of ours; original_size gets its real size
 bool is_compressed(const std::filesystem::path &path, uint64_t *original_size = nullptr);
 
+// The same, remembered per path: a game's files don't change while it runs, and games open and stat
+// the same files many times (each check otherwise opens the file). Compressing or decompressing a file
+// here forgets it
+bool is_compressed_cached(const std::filesystem::path &path, uint64_t *original_size = nullptr);
+
 // A read-only stream giving the original bytes (fread/fseeko/ftello work), or nullptr when the file
 // is not compressed or can't be read. Close with fclose
 FILE *open_read(const std::filesystem::path &path);

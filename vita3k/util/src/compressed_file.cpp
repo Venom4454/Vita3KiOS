@@ -23,8 +23,10 @@
 #include <memory>
 #include <mutex>
 #include <thread>
+#include <unordered_map>
 
 #if defined(__APPLE__) || defined(__linux__)
+#include <sys/stat.h>
 #include <unistd.h>
 #endif
 
@@ -327,6 +329,65 @@ bool is_compressed(const fs::path &path, uint64_t *original_size) {
     return true;
 }
 
+namespace {
+// What a file was found to be, with the size and change time it had then: a file replaced since (an
+// update installed over it) is looked at again
+struct Known {
+    uint64_t stored_size = 0;
+    int64_t changed = 0;
+    uint64_t original = 0; // 0: not compressed
+};
+std::mutex known_mutex;
+std::unordered_map<std::string, Known> known;
+
+bool file_stamp(const fs::path &path, uint64_t &size, int64_t &changed) {
+#if defined(__APPLE__) || defined(__linux__)
+    struct stat st{};
+    if (::stat(path.c_str(), &st) != 0)
+        return false;
+    size = static_cast<uint64_t>(st.st_size);
+#if defined(__APPLE__)
+    changed = static_cast<int64_t>(st.st_mtimespec.tv_sec) * 1000000000 + st.st_mtimespec.tv_nsec;
+#else
+    changed = static_cast<int64_t>(st.st_mtim.tv_sec) * 1000000000 + st.st_mtim.tv_nsec;
+#endif
+    return true;
+#else
+    return false;
+#endif
+}
+
+void forget(const fs::path &path) {
+    std::lock_guard lock(known_mutex);
+    known.erase(path.string());
+}
+} // namespace
+
+bool is_compressed_cached(const fs::path &path, uint64_t *original_size) {
+    uint64_t size = 0;
+    int64_t changed = 0;
+    if (!file_stamp(path, size, changed))
+        return is_compressed(path, original_size);
+    const std::string key = path.string();
+    {
+        std::lock_guard lock(known_mutex);
+        if (const auto it = known.find(key); it != known.end() && it->second.stored_size == size && it->second.changed == changed) {
+            if (it->second.original && original_size)
+                *original_size = it->second.original;
+            return it->second.original != 0;
+        }
+    }
+    uint64_t original = 0;
+    const bool packed = size >= HEADER_SIZE && is_compressed(path, &original);
+    std::lock_guard lock(known_mutex);
+    if (known.size() > 65536) // a game's worth of files is far less
+        known.clear();
+    known[key] = Known{ size, changed, packed ? std::max<uint64_t>(original, 1) : 0 };
+    if (packed && original_size)
+        *original_size = original;
+    return packed;
+}
+
 FILE *open_read(const fs::path &path) {
     auto reader = Reader::open(path);
     if (!reader)
@@ -428,6 +489,7 @@ Result compress(const fs::path &path, const std::function<void(uint64_t)> &progr
         return Result::Failed;
     }
     fs::rename(temp, path, ec);
+    forget(path);
     if (ec) {
         fs::remove(temp, ec);
         return Result::Failed;
@@ -477,6 +539,7 @@ Result decompress(const fs::path &path, const std::function<void(uint64_t)> &pro
         return Result::Failed;
     }
     fs::rename(temp, path, ec);
+    forget(path);
     if (ec) {
         fs::remove(temp, ec);
         return Result::Failed;
