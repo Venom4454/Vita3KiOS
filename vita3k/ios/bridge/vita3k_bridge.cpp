@@ -36,6 +36,7 @@
 #include <config/state.h>
 #include <config/version.h>
 #include <cpu/functions.h>
+#include <display/state.h>
 #include <io/state.h>
 #include <miniz.h>
 #include <modules/module_parent.h>
