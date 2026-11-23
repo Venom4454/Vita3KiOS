@@ -181,6 +181,17 @@ final class StickView: UIView {
     /// Where the stick rests, in this view (floating)
     private var restCenter = CGPoint.zero
     private var origin: CGPoint?
+    /// Advanced touch › mouse-style turning: the push follows the finger's speed and drops back the
+    /// moment it stops (nil: a normal stick)
+    private lazy var mouse: MouseLookStick? = {
+        guard TouchTuning.usesMouse(rightStick: xAxis == Pad.rightX) else { return nil }
+        return MouseLookStick { [weak self] x, y in
+            guard let self else { return }
+            v3k_pad_set_axis(self.xAxis, Float(x))
+            v3k_pad_set_axis(self.yAxis, Float(y))
+            self.showKnob(x, y)
+        }
+    }()
 
     init(xAxis: Int32, yAxis: Int32) {
         self.xAxis = xAxis
@@ -253,6 +264,10 @@ final class StickView: UIView {
         }
         tracking = true
         guard let center = origin else { return }
+        if let mouse {
+            mouse.move(to: point, time: touch.timestamp)
+            return
+        }
         let radius = (style == .fixed ? bounds.width : stickSize) / 2
         var dx = point.x - center.x
         var dy = point.y - center.y
@@ -262,11 +277,21 @@ final class StickView: UIView {
             dy *= radius / length
         }
         knob.center = CGPoint(x: center.x + dx, y: center.y + dy)
-        v3k_pad_set_axis(xAxis, Float(dx / radius))
-        v3k_pad_set_axis(yAxis, Float(dy / radius))
+        // Advanced touch › dead-zone skip (none by default)
+        let (x, y) = TouchTuning.shaped(dx / radius, dy / radius)
+        v3k_pad_set_axis(xAxis, Float(x))
+        v3k_pad_set_axis(yAxis, Float(y))
+    }
+
+    /// Mouse-style: the knob shows the push (it isn't where the finger is)
+    private func showKnob(_ x: CGFloat, _ y: CGFloat) {
+        guard let center = origin else { return }
+        let radius = (style == .fixed ? bounds.width : stickSize) / 2
+        knob.center = CGPoint(x: center.x + x * radius, y: center.y + y * radius)
     }
 
     func reset() {
+        mouse?.end()
         tracking = false
         origin = nil
         setNeedsLayout()
@@ -275,7 +300,11 @@ final class StickView: UIView {
         v3k_pad_set_axis(yAxis, 0)
     }
 
-    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) { if let t = touches.first { update(t) } }
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
+        guard let t = touches.first else { return }
+        update(t)
+        mouse?.begin(at: t.location(in: self), time: t.timestamp)
+    }
     override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) { if let t = touches.first { update(t) } }
     override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) { reset() }
     override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) { reset() }
@@ -288,6 +317,20 @@ enum ControlGroup: String, CaseIterable {
     case l2, r2, l3, r3
     // Macro buttons the player set up
     case macro1, macro2, macro3, macro4
+    // Advanced touch › move buttons one by one: each d-pad, face, Start and Select button on its own.
+    // After the clusters, so a cluster's own move (made before) still applies and these add to it
+    case dpadUp, dpadDown, dpadLeft, dpadRight, triangle, circle, cross, square, select, start
+
+    /// Moved one by one (shown in the editor instead of their cluster when that's on)
+    var isSingleButton: Bool {
+        switch self {
+        case .dpadUp, .dpadDown, .dpadLeft, .dpadRight, .triangle, .circle, .cross, .square, .select, .start: true
+        default: false
+        }
+    }
+
+    /// The cluster a single button belongs to
+    var isCluster: Bool { self == .dpad || self == .face || self == .startSelect }
 }
 
 struct GroupPlacement: Codable, Equatable {
@@ -383,6 +426,9 @@ final class ControlsOverlayView: UIView {
     // Settings › Controls › Sticks and Touch reach
     private let stickStyle = StickStyle.current
     private let touchReach = TouchReach.current
+    private let separateButtons = TouchTuning.separateButtons
+    private let zoneSplit = min(max(TouchTuning.zoneSplit, 0.25), 0.75)
+    private let zoneTop = min(max(TouchTuning.zoneTop, 0), 0.6)
     private let exitButton = UIButton(type: .system)
     private let hideButton = UIButton(type: .system)
     private let pauseButton = UIButton(type: .system)
@@ -861,6 +907,16 @@ final class ControlsOverlayView: UIView {
         case .r3: [r3]
         case .macro1, .macro2, .macro3, .macro4:
             macroIndex(group).map { $0 < macroButtons.count ? [macroButtons[$0] as UIView] : [] } ?? []
+        case .dpadUp: [up]
+        case .dpadDown: [down]
+        case .dpadLeft: [left]
+        case .dpadRight: [right]
+        case .triangle: [triangle]
+        case .circle: [circle]
+        case .cross: [cross]
+        case .square: [square]
+        case .select: [select]
+        case .start: [start]
         }
     }
 
@@ -880,6 +936,9 @@ final class ControlsOverlayView: UIView {
         let members = views(of: group)
         if members.isEmpty || members.allSatisfy(\.isHidden) { return false }
         if stickStyle == .zones && (group == .leftStick || group == .rightStick) { return false }
+        // Advanced touch › move buttons one by one: the single buttons instead of their clusters
+        if group.isSingleButton && !separateButtons { return false }
+        if group.isCluster && separateButtons { return false }
         return true
     }
 
@@ -988,8 +1047,7 @@ final class ControlsOverlayView: UIView {
         }
 
         applyPlacements(in: area)
-        applyStickStyle(zones: (CGRect(x: bounds.minX, y: area.minY + unit, width: bounds.width / 2, height: bounds.maxY - area.minY - unit),
-                                CGRect(x: bounds.midX, y: area.minY + unit, width: bounds.width / 2, height: bounds.maxY - area.minY - unit)))
+        applyStickStyle(zones: stickZones(top: area.minY + unit))
 
         // Menu, show/hide, rear touchpad and the button that tucks them away, top centre
         let topButtons = showRearButton ? [exitButton, pauseButton, hideButton, rearButton, collapseButton] : [exitButton, pauseButton, hideButton, collapseButton]
@@ -1082,8 +1140,7 @@ final class ControlsOverlayView: UIView {
         }
 
         applyPlacements(in: controls)
-        applyStickStyle(zones: (CGRect(x: bounds.minX, y: controls.minY + unit, width: bounds.width / 2, height: bounds.maxY - controls.minY - unit),
-                                CGRect(x: bounds.midX, y: controls.minY + unit, width: bounds.width / 2, height: bounds.maxY - controls.minY - unit)))
+        applyStickStyle(zones: stickZones(top: controls.minY + unit))
 
         if !hud.isHidden {
             // Over the game picture, in the chosen corner
@@ -1100,6 +1157,16 @@ final class ControlsOverlayView: UIView {
             hud.frame = CGRect(origin: origin, size: size)
         }
         if let editor { bringSubviewToFront(editor); editor.refresh() }
+    }
+
+    /// Screen halves: the two stick areas below `top`. Advanced touch can move the split between them and
+    /// keep more of the top of the screen for the game's touchscreen (defaults: halves, nothing more)
+    private func stickZones(top: CGFloat) -> (left: CGRect, right: CGRect) {
+        let zoneTopY = max(top, bounds.minY + bounds.height * zoneTop)
+        let height = max(bounds.maxY - zoneTopY, 0)
+        let split = bounds.minX + bounds.width * zoneSplit
+        return (CGRect(x: bounds.minX, y: zoneTopY, width: split - bounds.minX, height: height),
+                CGRect(x: split, y: zoneTopY, width: bounds.maxX - split, height: height))
     }
 
     /// Floating sticks get a landing area around where they're drawn; screen halves make each half of

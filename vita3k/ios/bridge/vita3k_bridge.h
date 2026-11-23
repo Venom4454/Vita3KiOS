@@ -59,6 +59,9 @@ int v3k_firmware_state(void);
 char *v3k_apps_json(void);
 void v3k_refresh_apps(void);
 bool v3k_delete_app(const char *title_id);
+// A touch on the game's own front touchscreen: x and y are 0...1 across the game picture (Vita screen),
+// wherever the picture sits on the phone. phase: 0 down, 1 moved, 2 up, 3 cancelled (macro buttons)
+void v3k_touch_inject_game(int phase, unsigned long long finger, float x, float y);
 // Packs an installed game's large files (LZFSE, in 64 KiB chunks: the game plays from them), or unpacks
 // them (compress false). Each file is replaced only after it was read back and matched. progress gets
 // bytes done / total. Returns 0 when done; *message says what happened (free with v3k_free_string).

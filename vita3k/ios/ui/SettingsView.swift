@@ -454,6 +454,11 @@ struct TouchControlsSection: View {
             } label: {
                 Label("Macro buttons", systemImage: "square.stack.3d.up")
             }
+            NavigationLink {
+                AdvancedTouchView()
+            } label: {
+                Label("Advanced touch", systemImage: "hand.draw")
+            }
             Toggle("Hide when a controller is connected", isOn: $hideWithController)
             Toggle("Vibrate on press", isOn: $touchHaptics)
             Toggle(isOn: $tvMode) {

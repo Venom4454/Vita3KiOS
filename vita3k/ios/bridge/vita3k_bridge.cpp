@@ -18,6 +18,7 @@
 #include "vita3k_bridge.h"
 
 #include "../cheats.h"
+#include "../controls/virtual_pad.h"
 #include "../crash_report.h"
 #include "../ios_platform.h"
 #include "../ios_session.h"
@@ -822,6 +823,20 @@ bool v3k_delete_app(const char *title_id) {
     app::delete_app(*emuenv, app->path);
     app::scan_apps(*emuenv);
     return true;
+}
+
+void v3k_touch_inject_game(int phase, unsigned long long finger, float x, float y) {
+    // A spot in the game picture (0...1 across the Vita screen) to a spot on the phone's window, the
+    // inverse of what the touch module does with the viewport (letterboxing, portrait, stretch)
+    auto *emuenv = ios::get_emuenv();
+    if (!emuenv)
+        return;
+    const auto &display = emuenv->display;
+    if (display.viewport_drawable_w <= 0 || display.viewport_drawable_h <= 0 || display.viewport_w <= 0 || display.viewport_h <= 0)
+        return;
+    const float window_x = (display.viewport_x + std::clamp(x, 0.0f, 1.0f) * display.viewport_w) / display.viewport_drawable_w;
+    const float window_y = (display.viewport_y + std::clamp(y, 0.0f, 1.0f) * display.viewport_h) / display.viewport_drawable_h;
+    v3k_touch_inject(phase, finger, window_x, window_y);
 }
 
 int v3k_compress_game(const char *title_id, bool compress, void (*progress)(void *context, uint64_t done, uint64_t total), void *context,

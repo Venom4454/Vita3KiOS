@@ -154,6 +154,153 @@ enum TouchReach: String, CaseIterable, Identifiable {
     }
 }
 
+// MARK: - Advanced touch (Settings › Controls › Advanced touch)
+
+/// Opt-in tuning for the sticks and macro buttons. Every default keeps the controls as they were.
+enum TouchTuning {
+    /// Which sticks turn like a mouse: they move only while the finger moves, by how fast it moves, and
+    /// go back to neutral the moment it stops (no lifting needed). Macro buttons that steer a stick
+    /// follow the stick they steer.
+    enum MouseLook: String, CaseIterable, Identifiable {
+        case off, rightStick, bothSticks
+        var id: String { rawValue }
+        var name: String {
+            switch self {
+            case .off: "Off"
+            case .rightStick: "Right stick (camera)"
+            case .bothSticks: "Both sticks"
+            }
+        }
+    }
+
+    private static let defaults = UserDefaults.standard
+
+    static var mouseLook: MouseLook {
+        MouseLook(rawValue: defaults.string(forKey: "v3k.touchMouseLook") ?? "") ?? .off
+    }
+
+    /// Mouse-style turning speed (1 = a 900 pt/s swipe is a full stick push)
+    static var mouseSensitivity: CGFloat {
+        CGFloat(defaults.object(forKey: "v3k.touchMouseSensitivity") as? Double ?? 1)
+    }
+
+    /// 0: turning follows finger speed one to one. Up to 1: slow drags turn finely, fast ones much more
+    static var mouseAcceleration: CGFloat {
+        CGFloat(defaults.object(forKey: "v3k.touchMouseAcceleration") as? Double ?? 0)
+    }
+
+    /// Share of a stick push the smallest movement already gives (0: none). Games ignore a small push
+    /// (their dead zone): with this, aiming answers from the first millimetre of a drag
+    static var deadZoneSkip: CGFloat {
+        CGFloat(defaults.object(forKey: "v3k.touchDeadZoneSkip") as? Double ?? 0)
+    }
+
+    /// Screen-halves sticks: where the left stick's area ends (share of the width) and how much of the
+    /// top of the screen stays for the game's touchscreen (share of the height)
+    static var zoneSplit: CGFloat {
+        CGFloat(defaults.object(forKey: "v3k.touchZoneSplit") as? Double ?? 0.5)
+    }
+
+    static var zoneTop: CGFloat {
+        CGFloat(defaults.object(forKey: "v3k.touchZoneTop") as? Double ?? 0)
+    }
+
+    /// The layout editor moves each d-pad, face, Start and Select button on its own
+    static var separateButtons: Bool {
+        defaults.bool(forKey: "v3k.touchSeparateButtons")
+    }
+
+    static func usesMouse(rightStick: Bool) -> Bool {
+        switch mouseLook {
+        case .off: false
+        case .rightStick: rightStick
+        case .bothSticks: true
+        }
+    }
+
+    /// A stick push with the dead-zone skip applied (direction kept, at most a full push)
+    static func shaped(_ x: CGFloat, _ y: CGFloat, skip: CGFloat = deadZoneSkip) -> (CGFloat, CGFloat) {
+        let length = sqrt(x * x + y * y)
+        guard length > 0.001 else { return (0, 0) }
+        let clamped = min(length, 1)
+        let out = skip > 0 ? skip + (1 - skip) * clamped : clamped
+        return (x / length * out, y / length * out)
+    }
+}
+
+/// A stick steered like a mouse: the push follows how fast the finger moves, and drops to neutral as
+/// soon as it stops moving (the finger can stay down)
+@MainActor
+final class MouseLookStick {
+    private let send: (CGFloat, CGFloat) -> Void
+    private var last: CGPoint?
+    private var lastTime: TimeInterval = 0
+    private var value = CGVector.zero
+    private var stop: DispatchWorkItem?
+    private let sensitivity = max(TouchTuning.mouseSensitivity, 0.1)
+    private let acceleration = min(max(TouchTuning.mouseAcceleration, 0), 1)
+    private let skip = TouchTuning.deadZoneSkip
+    /// The push now (the on-screen knob shows it)
+    private(set) var current = CGVector.zero
+
+    init(send: @escaping (CGFloat, CGFloat) -> Void) {
+        self.send = send
+    }
+
+    func begin(at point: CGPoint, time: TimeInterval) {
+        last = point
+        lastTime = time
+        value = .zero
+        output(.zero)
+    }
+
+    func move(to point: CGPoint, time: TimeInterval) {
+        guard let previous = last else {
+            begin(at: point, time: time)
+            return
+        }
+        // touches come every 8-16 ms; a longer gap means the finger had stopped
+        let dt = min(max(time - lastTime, 1.0 / 240), 0.05)
+        last = point
+        lastTime = time
+        let fullSpeed = 900 / sensitivity // points per second for a full push
+        var vx = (point.x - previous.x) / dt / fullSpeed
+        var vy = (point.y - previous.y) / dt / fullSpeed
+        let speed = sqrt(vx * vx + vy * vy)
+        if speed > 0.0001, acceleration > 0 {
+            let curved = pow(min(speed, 4), 1 + acceleration)
+            vx *= curved / speed
+            vy *= curved / speed
+        }
+        // a little smoothing: touch samples are uneven
+        value = CGVector(dx: value.dx * 0.35 + vx * 0.65, dy: value.dy * 0.35 + vy * 0.65)
+        output(value)
+        // no movement for a moment: back to neutral, the finger's spot is the new centre
+        stop?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.value = .zero
+            self.output(.zero)
+        }
+        stop = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05, execute: work)
+    }
+
+    func end() {
+        stop?.cancel()
+        stop = nil
+        last = nil
+        value = .zero
+        output(.zero)
+    }
+
+    private func output(_ push: CGVector) {
+        let (x, y) = TouchTuning.shaped(push.dx, push.dy, skip: skip)
+        current = CGVector(dx: x, dy: y)
+        send(x, y)
+    }
+}
+
 // MARK: - Macro buttons
 
 struct TouchMacro: Codable, Identifiable, Equatable {
@@ -176,6 +323,21 @@ struct TouchMacro: Codable, Identifiable, Equatable {
     var toggle = false
     /// Dragging the finger while it is held steers this stick
     var look: Look = .none
+    /// Also touches the game's screen here while held (0...1 across the game picture). Optional so
+    /// macros saved before it existed still load
+    var touchX: Double?
+    var touchY: Double?
+
+    var touchPoint: CGPoint? {
+        get {
+            guard let touchX, let touchY else { return nil }
+            return CGPoint(x: touchX, y: touchY)
+        }
+        set {
+            touchX = newValue.map { Double(min(max($0.x, 0), 1)) }
+            touchY = newValue.map { Double(min(max($0.y, 0), 1)) }
+        }
+    }
 
     static let limit = 4
     private static let key = "v3k.touchMacros"
@@ -194,8 +356,9 @@ struct TouchMacro: Codable, Identifiable, Equatable {
 
     /// What it does, in a few words (settings list)
     var summary: String {
-        var text = inputs.isEmpty ? "No buttons" : inputs.map(\.title).joined(separator: " + ")
+        var text = inputs.isEmpty ? (touchPoint == nil ? "No buttons" : "Touch only") : inputs.map(\.title).joined(separator: " + ")
         if toggle { text += " · toggle" }
+        if let point = touchPoint { text += " · touch \(Int(point.x * 100))%, \(Int(point.y * 100))%" }
         if look != .none { text += " · drag: \(look == .rightStick ? "camera" : "left stick")" }
         return text
     }
@@ -215,6 +378,14 @@ final class MacroButtonView: UIView {
     private let feedback = UIImpactFeedbackGenerator(style: .medium)
     /// Finger travel for a full stick push
     var lookRadius: CGFloat = 60
+    /// Advanced touch › mouse-style turning, for the stick this macro steers
+    private lazy var mouse: MouseLookStick? = {
+        guard macro.look != .none, TouchTuning.usesMouse(rightStick: macro.look == .rightStick) else { return nil }
+        return MouseLookStick { [weak self] x, y in self?.steer(x, y) }
+    }()
+    /// A finger id of its own for the touch it places on the game's screen
+    private lazy var touchFinger: UInt64 = 0x4D41_4352_4F00 | UInt64(UInt(bitPattern: macro.id.hashValue) & 0xFF)
+    private var touching = false
 
     init(macro: TouchMacro, tint: UIColor) {
         self.macro = macro
@@ -252,6 +423,10 @@ final class MacroButtonView: UIView {
         guard on != holding else { return }
         holding = on
         for input in macro.inputs { input.send(on) }
+        if let point = macro.touchPoint, on != touching {
+            touching = on
+            v3k_touch_inject_game(on ? 0 : 2, touchFinger, Float(point.x), Float(point.y))
+        }
         backgroundColor = on ? pressedFill : baseFill
         if on && haptics { feedback.impactOccurred() }
     }
@@ -272,7 +447,10 @@ final class MacroButtonView: UIView {
     func releaseIfHeld() {
         latched = false
         hold(false)
-        if touch != nil { steer(0, 0) }
+        if touch != nil {
+            mouse?.end()
+            steer(0, 0)
+        }
         touch = nil
     }
 
@@ -280,6 +458,7 @@ final class MacroButtonView: UIView {
         guard touch == nil, let first = touches.first else { return }
         touch = first
         origin = first.location(in: superview)
+        mouse?.begin(at: origin, time: first.timestamp)
         if macro.toggle {
             latched.toggle()
             hold(latched)
@@ -291,19 +470,23 @@ final class MacroButtonView: UIView {
     override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
         guard let touch, touches.contains(touch), macro.look != .none else { return }
         let point = touch.location(in: superview)
-        var dx = (point.x - origin.x) / lookRadius, dy = (point.y - origin.y) / lookRadius
-        let length = sqrt(dx * dx + dy * dy)
-        if length > 1 {
-            dx /= length
-            dy /= length
+        if let mouse {
+            mouse.move(to: point, time: touch.timestamp)
+            return
         }
+        // tracked from where the finger landed (on the button itself); Advanced touch › dead-zone skip
+        // makes the first millimetres count
+        let (dx, dy) = TouchTuning.shaped((point.x - origin.x) / lookRadius, (point.y - origin.y) / lookRadius)
         steer(dx, dy)
     }
 
     override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
         guard let touch, touches.contains(touch) else { return }
         self.touch = nil
-        if macro.look != .none { steer(0, 0) }
+        if macro.look != .none {
+            mouse?.end()
+            steer(0, 0)
+        }
         if !macro.toggle { hold(false) }
     }
 
@@ -330,7 +513,8 @@ struct MacroButtonsView: View {
                                 .overlay(Circle().stroke(Theme.accent, lineWidth: 1.5))
                                 .foregroundStyle(.white)
                             VStack(alignment: .leading, spacing: 2) {
-                                Text(macro.inputs.isEmpty ? "Not set up yet" : "Holds \(macro.inputs.map(\.title).joined(separator: " + "))")
+                                Text(macro.inputs.isEmpty && macro.touchPoint == nil ? "Not set up yet"
+                                     : macro.inputs.isEmpty ? "Touches the screen" : "Holds \(macro.inputs.map(\.title).joined(separator: " + "))")
                                 Text(macro.summary).font(.caption).foregroundStyle(.secondary)
                             }
                         }
@@ -408,8 +592,148 @@ struct MacroEditorView: View {
             } footer: {
                 Text("Example for shooters: hold L and set dragging to the right stick. Press to aim, and slide the same thumb to look around while aiming.")
             }
+            Section {
+                Toggle("Touch the game's screen", isOn: Binding(get: { macro.touchPoint != nil },
+                                                                set: { macro.touchPoint = $0 ? CGPoint(x: 0.5, y: 0.5) : nil }))
+                if let point = macro.touchPoint {
+                    TouchSpotPicker(point: Binding(get: { point }, set: { macro.touchPoint = $0 }))
+                        .listRowInsets(EdgeInsets(top: 10, leading: 16, bottom: 10, trailing: 16))
+                }
+            } footer: {
+                Text("While the macro is held, the game feels a finger on this spot of its touchscreen: for corner taps and other touch controls, even with screen-halves sticks. Tap or drag in the box to place it.")
+            }
         }
         .navigationTitle(macro.name.isEmpty ? "Macro" : macro.name)
         .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+/// The Vita's screen in small: tap or drag to place the spot a macro touches
+struct TouchSpotPicker: View {
+    @Binding var point: CGPoint
+
+    var body: some View {
+        GeometryReader { geometry in
+            let size = geometry.size
+            ZStack(alignment: .topLeading) {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(Color.black.opacity(0.85))
+                    .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(Theme.accent.opacity(0.6), lineWidth: 1))
+                // thirds, to aim at corners and edges
+                Path { path in
+                    for i in 1...2 {
+                        let x = size.width * CGFloat(i) / 3, y = size.height * CGFloat(i) / 3
+                        path.move(to: CGPoint(x: x, y: 0))
+                        path.addLine(to: CGPoint(x: x, y: size.height))
+                        path.move(to: CGPoint(x: 0, y: y))
+                        path.addLine(to: CGPoint(x: size.width, y: y))
+                    }
+                }
+                .stroke(Color.white.opacity(0.12), lineWidth: 1)
+                Circle()
+                    .fill(Theme.accent)
+                    .overlay(Circle().stroke(.white, lineWidth: 2))
+                    .frame(width: 22, height: 22)
+                    .position(x: point.x * size.width, y: point.y * size.height)
+                Text("\(Int(point.x * 960)), \(Int(point.y * 544))")
+                    .font(.caption2.monospacedDigit())
+                    .foregroundStyle(.white.opacity(0.7))
+                    .padding(6)
+            }
+            .contentShape(Rectangle())
+            .gesture(DragGesture(minimumDistance: 0).onChanged { value in
+                point = CGPoint(x: min(max(value.location.x / max(size.width, 1), 0), 1),
+                                y: min(max(value.location.y / max(size.height, 1), 0), 1))
+            })
+        }
+        .aspectRatio(960.0 / 544.0, contentMode: .fit)
+        .accessibilityLabel("Touch spot")
+    }
+}
+
+// MARK: - Settings › Controls › Advanced touch
+
+struct AdvancedTouchView: View {
+    @AppStorage("v3k.touchMouseLook") private var mouseLook = TouchTuning.MouseLook.off.rawValue
+    @AppStorage("v3k.touchMouseSensitivity") private var sensitivity = 1.0
+    @AppStorage("v3k.touchMouseAcceleration") private var acceleration = 0.0
+    @AppStorage("v3k.touchDeadZoneSkip") private var deadZoneSkip = 0.0
+    @AppStorage("v3k.touchZoneSplit") private var zoneSplit = 0.5
+    @AppStorage("v3k.touchZoneTop") private var zoneTop = 0.0
+    @AppStorage("v3k.touchSeparateButtons") private var separateButtons = false
+
+    var body: some View {
+        Form {
+            Section {
+                Picker("Mouse-style turning", selection: $mouseLook) {
+                    ForEach(TouchTuning.MouseLook.allCases) { mode in
+                        Text(LocalizedStringKey(mode.name)).tag(mode.rawValue)
+                    }
+                }
+                if mouseLook != TouchTuning.MouseLook.off.rawValue {
+                    VStack(alignment: .leading) {
+                        Text("Sensitivity: \(sensitivity, specifier: "%.2f")×")
+                        Slider(value: $sensitivity, in: 0.25...3, step: 0.05)
+                    }
+                    VStack(alignment: .leading) {
+                        Text("Acceleration: \(Int(acceleration * 100))%")
+                        Slider(value: $acceleration, in: 0...1, step: 0.05)
+                    }
+                }
+            } header: {
+                Text("Camera")
+            } footer: {
+                Text("Like a mouse: the stick moves only while your finger moves, by how fast it moves, and the camera stops the moment your finger stops, without lifting it. Aim macros follow the stick they steer. Acceleration makes slow drags finer and fast ones turn further.")
+            }
+            Section {
+                VStack(alignment: .leading) {
+                    if deadZoneSkip == 0 {
+                        Text("Skip the game's dead zone: off")
+                    } else {
+                        Text("Skip the game's dead zone: \(Int(deadZoneSkip * 100))%")
+                    }
+                    Slider(value: $deadZoneSkip, in: 0...0.4, step: 0.05)
+                }
+            } footer: {
+                Text("Games ignore a small stick push. With this, the smallest drag already pushes the stick this far, so aiming answers from the first millimetre (also with aim macros). Around 20% suits most games; too much makes small moves jumpy.")
+            }
+            Section {
+                VStack(alignment: .leading) {
+                    Text("Left stick area: \(Int(zoneSplit * 100))% of the width")
+                    Slider(value: $zoneSplit, in: 0.25...0.75, step: 0.05)
+                }
+                VStack(alignment: .leading) {
+                    if zoneTop == 0 {
+                        Text("Top kept for the touchscreen: only the buttons' row")
+                    } else {
+                        Text("Top kept for the touchscreen: \(Int(zoneTop * 100))% of the height")
+                    }
+                    Slider(value: $zoneTop, in: 0...0.6, step: 0.05)
+                }
+            } header: {
+                Text("Screen-halves sticks")
+            } footer: {
+                Text("Where the left and right stick areas meet, and how much of the top of the screen still touches the game's touchscreen. Only with Sticks set to Screen halves.")
+            }
+            Section {
+                Toggle("Move buttons one by one", isOn: $separateButtons)
+            } footer: {
+                Text("Edit control layout moves and resizes each d-pad, face, Start and Select button on its own instead of as a group. Where you already moved a group, the buttons start from there.")
+            }
+            Section {
+                Button("Back to the defaults", role: .destructive) {
+                    mouseLook = TouchTuning.MouseLook.off.rawValue
+                    sensitivity = 1
+                    acceleration = 0
+                    deadZoneSkip = 0
+                    zoneSplit = 0.5
+                    zoneTop = 0
+                    separateButtons = false
+                }
+            } footer: {
+                Text("Changes take effect the next time a game starts.")
+            }
+        }
+        .navigationTitle("Advanced touch")
     }
 }

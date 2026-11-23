@@ -552,8 +552,11 @@ struct VitaStyledBackground: View {
         return CGFloat(x - floor(x))
     }
 
+    // stops while a game runs (the library window is only hidden then)
+    @ObservedObject private var libraryShown = BackgroundMotion.shared
+
     var body: some View {
-        let paused = !animated || reduceMotion || ProcessInfo.processInfo.isLowPowerModeEnabled
+        let paused = !animated || reduceMotion || ProcessInfo.processInfo.isLowPowerModeEnabled || !libraryShown.active
         TimelineView(.animation(minimumInterval: 1 / 24, paused: paused)) { timeline in
             Canvas { context, size in
                 let t = timeline.date.timeIntervalSinceReferenceDate
@@ -732,8 +735,11 @@ struct VitaDefaultBackground: View {
         }
     }()
 
+    // stops while a game runs (the library window is only hidden then)
+    @ObservedObject private var libraryShown = BackgroundMotion.shared
+
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1 / 30, paused: reduceMotion)) { timeline in
+        TimelineView(.animation(minimumInterval: 1 / 30, paused: reduceMotion || !libraryShown.active)) { timeline in
             Canvas { context, size in
                 let t = timeline.date.timeIntervalSinceReferenceDate
                 // Light from the top left fading to the Vita's deep blue

@@ -928,6 +928,23 @@ char* azh_installed_titles(void) {
     return dup(out);
 }
 
+// The zstd level of new compressed files (patched into FileUtil by apply.py; zstd's default is 3).
+// The Compress button packs at 10: a few percent smaller, unpacked just as fast, only the packing is
+// slower. CIA installs keep the default
+extern "C" int hinoki_z3ds_level;
+
+namespace {
+struct StrongerCompression {
+    int previous = hinoki_z3ds_level;
+    StrongerCompression() {
+        hinoki_z3ds_level = 10;
+    }
+    ~StrongerCompression() {
+        hinoki_z3ds_level = previous;
+    }
+};
+} // namespace
+
 int azh_convert_rom(const char* src_c, bool compress, azh_progress_fn progress, void* context, char* dst_out,
                     size_t dst_size) {
     if (!src_c || !dst_out || dst_size == 0)
@@ -953,6 +970,7 @@ int azh_convert_rom(const char* src_c, bool compress, azh_progress_fn progress, 
     for (int n = 2; FileUtil::Exists(dst); n++)
         dst = base + " (" + std::to_string(n) + ")." + extension;
 
+    const StrongerCompression stronger;
     std::function<FileUtil::ProgressCallback> update = [progress, context](std::size_t done,
                                                                            std::size_t total) {
         if (progress)
@@ -1053,6 +1071,7 @@ int azh_convert_installed(uint64_t title_id, bool compress, azh_progress_fn prog
 
     u64 base = 0;
     bool failed = false;
+    const StrongerCompression stronger;
     for (const auto& [path, size] : work) {
         const std::string temp = path + ".hinoki-tmp";
         // the compressor reports bytes of its input; decompressing reports bytes of the packed file

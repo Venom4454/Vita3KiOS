@@ -731,3 +731,13 @@ private:
 """)
 
 print("Azahar prepared for Hinoki")
+
+# ---- compressed 3DS files: a stronger zstd level when Hinoki's Compress button packs a game ----
+# (zstd unpacks every level at the same speed; only packing takes longer, so CIA installs keep the
+# default and the game page's Compress raises it while it runs)
+edit("src/common/file_derived.cpp", "namespace FileUtil {\n",
+     "namespace FileUtil {\n\n// HINOKI: the zstd level new compressed files get (Hinoki raises it for its Compress button)\n"
+     "extern \"C\" int hinoki_z3ds_level;\nint hinoki_z3ds_level = ZSTD_CLEVEL_DEFAULT;\n", count=1)
+edit("src/common/file_derived.cpp",
+     "size_t init_result = ZSTD_seekable_initCStream(cstream, ZSTD_CLEVEL_DEFAULT, 0,",
+     "size_t init_result = ZSTD_seekable_initCStream(cstream, hinoki_z3ds_level /* HINOKI */, 0,")
