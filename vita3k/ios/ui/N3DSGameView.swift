@@ -1554,6 +1554,9 @@ final class N3DSGameViewController: UIViewController {
             return
         }
         let link = CADisplayLink(target: self, selector: #selector(tick))
+        // 3DS games run at 60: on a 120 Hz iPad (ProMotion) the input poll would wake twice as often
+        // and hold the screen at 120 Hz for nothing
+        link.preferredFrameRateRange = CAFrameRateRange(minimum: 30, maximum: 60, preferred: 60)
         link.add(to: .main, forMode: .common)
         displayLink = link
         startMotion()
