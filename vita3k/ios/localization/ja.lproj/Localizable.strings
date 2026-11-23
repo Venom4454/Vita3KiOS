@@ -562,3 +562,6 @@
 "Both sticks" = "両方のスティック";
 "Touch spot" = "タッチ位置";
 "Right stick (camera)" = "右スティック（カメラ）";
+"Hinoki's signing runs out %@. Refresh it in SideStore (or the app you installed it with) before then: once it has run out, iOS won't open Hinoki until it is refreshed. Your games and saves stay." = "Hinoki の署名の期限は %@ です。期限が切れる前に SideStore（またはインストールに使ったアプリ）で更新してください。期限が切れると、更新するまで iOS は Hinoki を開きません。ゲームとセーブデータは残ります。";
+"Signing runs out soon" = "署名の期限が近づいています";
+"Signed until" = "署名の有効期限";

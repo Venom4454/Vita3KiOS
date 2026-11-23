@@ -301,8 +301,75 @@ struct UpdatesSection: View {
                 Text(status).font(.footnote).foregroundStyle(.secondary)
             }
             Toggle("Check automatically", isOn: $updater.autoCheck)
+            if let profile = SigningInfo.profile {
+                LabeledContent("Signed until", value: profile.expires.formatted(date: .abbreviated, time: .shortened))
+            }
         } footer: {
             Text("Hinoki looks for a new release on its GitHub page and offers to install it with LiveContainer, TrollStore, SideStore or AltStore. Test builds are only offered releases made after them.")
         }
+    }
+}
+
+/// How this copy of Hinoki was signed, from its provisioning profile (absent under TrollStore and
+/// inside LiveContainer, which sign apps their own way). Free SideStore signing lasts 7 days: past it
+/// iOS won't open Hinoki at all, so the library warns while there's still time to refresh it.
+enum SigningInfo {
+    struct Profile {
+        let expires: Date
+        let team: String
+        let increasedMemory: Bool
+        let largeAddressSpace: Bool
+        let debuggable: Bool
+    }
+
+    static let profile: Profile? = {
+        guard !JITEnablerInfo.inLiveContainer,
+              let url = Bundle.main.url(forResource: "embedded", withExtension: "mobileprovision"),
+              let data = try? Data(contentsOf: url) else { return nil }
+        // a signed (CMS) wrapper around a property list
+        guard let start = data.range(of: Data("<?xml".utf8)),
+              let end = data.range(of: Data("</plist>".utf8), in: start.lowerBound..<data.endIndex) else { return nil }
+        guard let plist = try? PropertyListSerialization.propertyList(from: data.subdata(in: start.lowerBound..<end.upperBound), format: nil) as? [String: Any],
+              let expires = plist["ExpirationDate"] as? Date else { return nil }
+        let entitlements = plist["Entitlements"] as? [String: Any] ?? [:]
+        return Profile(expires: expires,
+                       team: plist["TeamName"] as? String ?? "?",
+                       increasedMemory: entitlements["com.apple.developer.kernel.increased-memory-limit"] as? Bool ?? false,
+                       largeAddressSpace: entitlements["com.apple.developer.kernel.extended-virtual-addressing"] as? Bool ?? false,
+                       debuggable: entitlements["get-task-allow"] as? Bool ?? false)
+    }()
+
+    /// One line for the log: what JIT and memory depend on
+    static func logOnce() {
+        guard !logged else { return }
+        logged = true
+        guard let profile else {
+            v3k_log_ui("Signing: no provisioning profile (TrollStore, LiveContainer or a jailbreak)")
+            return
+        }
+        let formatter = ISO8601DateFormatter()
+        v3k_log_ui("Signing: \(profile.team), until \(formatter.string(from: profile.expires)); debugger allowed: \(profile.debuggable ? "yes" : "no"), increased memory limit: \(profile.increasedMemory ? "yes" : "no"), large address space: \(profile.largeAddressSpace ? "yes" : "no")")
+    }
+
+    private static var logged = false
+
+    /// Shown in the library at most every 12 hours from 3 days before the end
+    static func expiryWarning() -> String? {
+        guard let profile else { return nil }
+        let left = profile.expires.timeIntervalSinceNow
+        guard left > 0, left < 3 * 24 * 3600 else { return nil }
+        let key = "v3k.signingWarningShown"
+        let last = UserDefaults.standard.double(forKey: key)
+        guard Date().timeIntervalSince1970 - last > 12 * 3600 else { return nil }
+        UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: key)
+        let when = RelativeDateTimeFormatter().localizedString(for: profile.expires, relativeTo: Date())
+        return String(format: NSLocalizedString("Hinoki's signing runs out %@. Refresh it in SideStore (or the app you installed it with) before then: once it has run out, iOS won't open Hinoki until it is refreshed. Your games and saves stay.", comment: ""), when)
+    }
+}
+
+/// JITEnabler.inLiveContainer from outside the main actor (it only reads the environment)
+enum JITEnablerInfo {
+    static var inLiveContainer: Bool {
+        ProcessInfo.processInfo.environment["LC_HOME_PATH"] != nil || Bundle.main.bundlePath.contains("LiveContainer")
     }
 }

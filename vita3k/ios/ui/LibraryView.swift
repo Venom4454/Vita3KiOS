@@ -77,6 +77,7 @@ struct LibraryView: View {
     /// Starred games, kept at the top of the library (title IDs, comma-separated)
     @AppStorage("v3k.favorites") private var favoritesRaw = ""
     @ObservedObject private var updater = Updater.shared
+    @State private var signingWarning: String?
     @AppStorage("v3k.vitaHome") private var vitaHome = false
 
     @State private var search = ""
@@ -238,6 +239,11 @@ struct LibraryView: View {
             .sheet(item: $updater.available) { release in
                 UpdateSheet(release: release)
             }
+            .alert("Signing runs out soon", isPresented: Binding(get: { signingWarning != nil }, set: { if !$0 { signingWarning = nil } })) {
+                Button("OK", role: .cancel) { signingWarning = nil }
+            } message: {
+                Text(signingWarning ?? "")
+            }
             .onChange(of: model.launchRequested) { _, app in
                 guard let app else { return }
                 model.launchRequested = nil
@@ -247,6 +253,8 @@ struct LibraryView: View {
             .onAppear {
                 model.checkForCrashReport()
                 updater.checkIfDue()
+                SigningInfo.logOnce()
+                if signingWarning == nil { signingWarning = SigningInfo.expiryWarning() }
                 LibraryHost.updateOrientation()
             }
             .onChange(of: vitaHome) { _, _ in LibraryHost.updateOrientation() }
