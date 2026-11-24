@@ -72,7 +72,8 @@ enum GitHubReport {
             URLQueryItem(name: "body", value: body),
         ]
         // URLComponents leaves + and & inside values alone in places GitHub reads differently
-        parts?.percentEncodedQuery = parts?.percentEncodedQuery?.replacingOccurrences(of: "+", with: "%2B")
+        let query = parts?.percentEncodedQuery?.replacingOccurrences(of: "+", with: "%2B")
+        parts?.percentEncodedQuery = query
         return parts?.url
     }
 
