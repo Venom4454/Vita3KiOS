@@ -1920,6 +1920,7 @@ struct VitaPanel: View {
             NavigationStack {
                 // the panel's title bar names it already
                 TrophiesView().scrollContentBackground(.hidden).toolbar(.hidden, for: .navigationBar)
+                    .modifier(ClearNavigationBackground())
             }
                 .padding(.horizontal, space.len(max(space.inset, 0)))
         case .themes: themes
@@ -2056,6 +2057,17 @@ struct VitaPanel: View {
             .padding(.horizontal, space.len(40)).padding(.vertical, space.len(18))
             .frame(maxWidth: space.len(820))
             .frame(maxWidth: .infinity)
+        }
+    }
+}
+
+/// The panel's own dark glass shows through a navigation stack (iOS 18+; before, it draws black)
+private struct ClearNavigationBackground: ViewModifier {
+    func body(content: Content) -> some View {
+        if #available(iOS 18.0, *) {
+            content.containerBackground(.clear, for: .navigation)
+        } else {
+            content
         }
     }
 }
