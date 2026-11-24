@@ -199,14 +199,14 @@ struct SetupGuideView: View {
             title("gamecontroller.fill", "Controls")
             Text("Touch controls appear over the game. Any MFi, Xbox, PlayStation or Switch controller works too and hides them.")
                 .foregroundStyle(.secondary)
-            point("hand.draw", "Make them yours", "In a game, the menu button › Edit control layout: drag and pinch any control")
+            point("hand.draw", "Make them yours", "In a game, HOME (bottom left) opens the quick menu › Edit layout: drag and pinch any control")
             point("slider.horizontal.3", "More in Settings", "Sizes, floating sticks, macro buttons, haptics and Advanced touch (mouse-style camera)")
             point("iphone.landscape", "Landscape or upright", "Both work; each keeps its own layout")
         case .done:
             title("checkmark.seal.fill", "You're set")
             Text("A few things worth knowing:").foregroundStyle(.secondary)
             point("hand.tap", "Long-press a game", "Settings for that game, patches, saves, favorites")
-            point("trophy.fill", "Trophies", "Earned trophies are kept, game by game")
+            point("trophy.fill", "Trophies", "Every game's trophies: a bubble on the Vita home screen, or the library's menu")
             point("arrow.down.right.and.arrow.up.left", "Running out of space?", "A game's page can compress it; it keeps playing")
             point("ladybug.fill", "Something broke?", "Settings › About › Report a problem gathers the logs that show what happened")
         }

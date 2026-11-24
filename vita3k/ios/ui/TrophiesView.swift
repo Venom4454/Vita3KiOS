@@ -63,7 +63,11 @@ enum TrophyGrade {
 /// An icon file from the trophy folder, loaded once
 private final class TrophyImageCache {
     static let shared = TrophyImageCache()
-    private let cache = NSCache<NSString, UIImage>()
+    private let cache: NSCache<NSString, UIImage> = {
+        let cache = NSCache<NSString, UIImage>()
+        cache.countLimit = 200 // a long list's icons, not every icon ever looked at
+        return cache
+    }()
 
     func image(_ path: String) -> UIImage? {
         guard !path.isEmpty else { return nil }

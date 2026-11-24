@@ -28,6 +28,8 @@ set(VITA3K_IOS_SWIFT_SOURCES
 	ios/ui/SetupGuide.swift
 	ios/ui/GitHubReport.swift
 	ios/ui/GameIntents.swift
+	ios/ui/VitaQuickMenu.swift
+	ios/ui/TrophyBanner.swift
 	ios/ui/MenuMusic.swift
 	ios/ui/GameSettingsView.swift
 	ios/ui/PerformanceHUD.swift

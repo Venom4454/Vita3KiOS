@@ -128,10 +128,6 @@ struct SettingsPage: Identifiable {
             },
         ]),
         Group(title: "PS Vita", pages: [
-            page("trophies", "Trophies", "What your games earned, game by game", "trophy.fill", .yellow,
-                 "trophies trophy platinum gold silver bronze achievements earned unlocked") {
-                TrophiesView()
-            },
             page("vita-emulation", "Emulation, graphics & audio", "Resolution, filters, CPU, shaders, system language, game audio", "cpu.fill", .indigo,
                  "resolution upscale filter fsr fxaa anisotropic shader cache async cpu fast thermal keep cool textures pvrtc v-sync vsync fps 60 language enter button circle cross pstv ps tv audio volume performance overlay hud") {
                 SettingsForm("Emulation, graphics & audio") { EmulationSections() }
@@ -403,7 +399,6 @@ struct TouchControlsSection: View {
     @AppStorage("v3k.touchScale") private var touchScale = 1.0
     @AppStorage("v3k.touchHideWithController") private var hideWithController = true
     @AppStorage("v3k.touchHaptics") private var touchHaptics = true
-    @AppStorage("v3k.touchRearButton") private var rearButton = true
     @AppStorage("v3k.portraitMode") private var portraitMode = true
     @AppStorage("v3k.tvMode") private var tvMode = true
     @AppStorage("v3k.controllerTheme") private var controllerTheme = ControllerTheme.classic.rawValue
@@ -479,13 +474,6 @@ struct TouchControlsSection: View {
                         .font(.caption).foregroundStyle(.secondary)
                 }
             }
-            Toggle(isOn: $rearButton) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Rear touchpad button")
-                    Text("A button at the top of the screen that sends your touches to the Vita's rear touchpad, for games that use it. Also in the game menu.")
-                        .font(.caption).foregroundStyle(.secondary)
-                }
-            }
             Toggle(isOn: Binding(get: { model.settings.motion }, set: { value in
                 model.settings.motion = value
                 model.setBool("motion", value)
@@ -510,7 +498,7 @@ struct TouchControlsSection: View {
         } header: {
             Text("Controls")
         } footer: {
-            Text("Touch control changes apply the next time a game starts. In game, the ✕ at the top opens the game menu: screenshot, rear touchpad, edit control layout (drag and pinch to move and resize buttons) and quit. The eye button hides or shows the controls. With a controller, hold Select + Start, or press Home/PS, to open the menu.")
+            Text("Touch control changes apply the next time a game starts. In game, HOME (bottom left, where a Vita's PS button is) opens the quick menu: pause, screenshot, rear touchpad, hide or show the controls, edit the layout (drag and pinch to move and resize buttons), performance overlay and quit. With a controller, press Home/PS or hold Select + Start.")
         }
     }
 }

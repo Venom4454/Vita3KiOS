@@ -335,6 +335,9 @@ final class LibraryModel: ObservableObject {
         setenv("V3K_VERTEX_REALIGN_USER_OFF", UserDefaults.standard.bool(forKey: "v3k.vertexRealignOff.\(app.titleId)") ? "1" : "0", 1)
         let pstv = UserDefaults.standard.integer(forKey: "v3k.pstv.\(app.titleId)")
         setenv("V3K_PSTV_GAME", pstv == 1 ? "1" : pstv == 2 ? "0" : "", 1)
+        VitaSession.title = app.title
+        VitaSession.iconPath = app.iconPath
+        VitaSession.startedAt = Date()
         v3k_request_launch(app.titleId)
     }
 

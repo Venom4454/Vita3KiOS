@@ -24,6 +24,15 @@
 #include <util/log.h>
 
 #include <util/tracy.h>
+
+#if defined(__APPLE__)
+#include <TargetConditionals.h>
+#endif
+#if defined(__APPLE__) && TARGET_OS_IOS
+// Hinoki: the "trophy earned" banner over the game (vita3k/ios/ui/TrophyBanner.swift)
+// weak: the app defines it; anything else linking the modules simply has no banner
+extern "C" void v3k_trophy_unlocked(const char *name, const char *detail, int grade, const std::uint8_t *icon, std::uint32_t icon_size) __attribute__((weak));
+#endif
 TRACY_MODULE_NAME(SceNpTrophy);
 
 using SceNpTrophyHandle = int32_t;
@@ -525,6 +534,19 @@ static int do_trophy_callback(EmuEnvState &emuenv, np::trophy::Context *context,
     }
 
     LOG_INFO("Trophy unlocked, name: {}, detail: {}, id = {}", callback_data.trophy_name, callback_data.trophy_detail, trophy_id);
+
+#if defined(__APPLE__) && TARGET_OS_IOS
+    if (v3k_trophy_unlocked) {
+        const std::string icon_name = fmt::format("TROP{:0>3d}.PNG", trophy_id);
+        SceSize icon_size = 0;
+        context->copy_file_data_from_trophy_file(icon_name.c_str(), nullptr, &icon_size);
+        std::vector<std::uint8_t> icon(icon_size);
+        if (icon_size > 0)
+            context->copy_file_data_from_trophy_file(icon_name.c_str(), icon.data(), &icon_size);
+        v3k_trophy_unlocked(callback_data.trophy_name.c_str(), callback_data.trophy_detail.c_str(), static_cast<int>(callback_data.trophy_kind),
+            icon.empty() ? nullptr : icon.data(), static_cast<std::uint32_t>(icon.size()));
+    }
+#endif
 
     // Call all registered callbacks.
     {

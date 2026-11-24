@@ -206,9 +206,10 @@ final class N3DSMetalView: UIView {
 
 // MARK: - On-screen controls
 
-private let n3dsFill = UIColor(white: 0.1, alpha: 0.9)
-private let n3dsPressedFill = UIColor(white: 0.55, alpha: 0.95)
-private let n3dsEdge = UIColor(white: 1, alpha: 0.28)
+// A lighter look than before (it read heavy over the game): see-through fills, a fine bright edge
+private let n3dsFill = UIColor(white: 0.06, alpha: 0.58)
+private let n3dsPressedFill = UIColor(white: 0.6, alpha: 0.8)
+private let n3dsEdge = UIColor(white: 1, alpha: 0.34)
 
 /// A round or pill button that reports pressed / released
 final class N3DSPadButton: UIView {
@@ -225,18 +226,18 @@ final class N3DSPadButton: UIView {
         super.init(frame: .zero)
         isMultipleTouchEnabled = true
         label.text = title
-        label.font = .systemFont(ofSize: fontSize, weight: .heavy)
+        label.font = .systemFont(ofSize: fontSize, weight: .bold)
         label.textColor = .white
         label.textAlignment = .center
         label.adjustsFontSizeToFitWidth = true
         label.minimumScaleFactor = 0.6
         addSubview(label)
-        layer.borderWidth = accent == nil ? 1.5 : 2
-        layer.borderColor = (accent ?? n3dsEdge).cgColor
+        layer.borderWidth = accent == nil ? 1.2 : 1.6
+        layer.borderColor = (accent?.withAlphaComponent(0.85) ?? n3dsEdge).cgColor
         layer.shadowColor = UIColor.black.cgColor
-        layer.shadowOpacity = 0.4
-        layer.shadowRadius = 3
-        layer.shadowOffset = CGSize(width: 0, height: 1.5)
+        layer.shadowOpacity = 0.18
+        layer.shadowRadius = 2
+        layer.shadowOffset = CGSize(width: 0, height: 1)
         update(false)
     }
 
@@ -251,7 +252,7 @@ final class N3DSPadButton: UIView {
 
     private func update(_ pressed: Bool) {
         if let accent {
-            backgroundColor = pressed ? accent : darkened(accent, by: 0.32).withAlphaComponent(0.92)
+            backgroundColor = pressed ? accent.withAlphaComponent(0.9) : darkened(accent, by: 0.3).withAlphaComponent(0.62)
             label.textColor = pressed ? .white : accent.withAlphaComponent(1)
         } else {
             backgroundColor = pressed ? n3dsPressedFill : n3dsFill
@@ -399,11 +400,11 @@ final class N3DSDpad: UIView {
         super.init(frame: frame)
         cross.fillColor = n3dsFill.cgColor
         cross.strokeColor = n3dsEdge.cgColor
-        cross.lineWidth = 1.5
+        cross.lineWidth = 1.2
         cross.shadowColor = UIColor.black.cgColor
-        cross.shadowOpacity = 0.4
-        cross.shadowRadius = 3
-        cross.shadowOffset = CGSize(width: 0, height: 1.5)
+        cross.shadowOpacity = 0.18
+        cross.shadowRadius = 2
+        cross.shadowOffset = CGSize(width: 0, height: 1)
         layer.addSublayer(cross)
         for _ in 0..<4 {
             let arm = CAShapeLayer()
@@ -530,19 +531,19 @@ final class N3DSStick: UIView {
         backgroundColor = .clear
         base.backgroundColor = n3dsFill
         base.layer.borderColor = n3dsEdge.cgColor
-        base.layer.borderWidth = 1.5
+        base.layer.borderWidth = 1.2
         base.layer.shadowColor = UIColor.black.cgColor
-        base.layer.shadowOpacity = 0.4
-        base.layer.shadowRadius = 3
-        base.layer.shadowOffset = CGSize(width: 0, height: 1.5)
+        base.layer.shadowOpacity = 0.18
+        base.layer.shadowRadius = 2
+        base.layer.shadowOffset = CGSize(width: 0, height: 1)
         base.isUserInteractionEnabled = false
         addSubview(base)
-        knob.backgroundColor = UIColor(white: 0.72, alpha: 1)
-        knob.layer.borderColor = UIColor(white: 0.92, alpha: 1).cgColor
-        knob.layer.borderWidth = 1.5
+        knob.backgroundColor = UIColor(white: 0.85, alpha: 0.78)
+        knob.layer.borderColor = UIColor(white: 1, alpha: 0.9).cgColor
+        knob.layer.borderWidth = 1
         knob.layer.shadowColor = UIColor.black.cgColor
-        knob.layer.shadowOpacity = 0.5
-        knob.layer.shadowRadius = 4
+        knob.layer.shadowOpacity = 0.3
+        knob.layer.shadowRadius = 3
         knob.layer.shadowOffset = CGSize(width: 0, height: 2)
         knob.isUserInteractionEnabled = false
         addSubview(knob)
@@ -693,9 +694,6 @@ final class N3DSGameViewController: UIViewController {
 
     private let gameView = N3DSMetalView()
     private let overlay = N3DSOverlay()
-    private let menuButton = N3DSIconButton(symbol: "line.3.horizontal", label: "Menu")
-    private let fastButton = N3DSIconButton(symbol: "forward.fill", label: "Fast forward")
-    private let swapButton = N3DSIconButton(symbol: "arrow.up.arrow.down", label: "Swap screens")
     private let miniScreenButton = UIButton(type: .custom)
     private let loadingLabel = UILabel()
     private let loadingSpinner = UIActivityIndicatorView(style: .large)
@@ -715,7 +713,11 @@ final class N3DSGameViewController: UIViewController {
     private let motion = CMMotionManager()
     private var booted = false
     private var running = false
-    private var menuOpen = false
+    /// The game is paused under a menu or the layout editor: the input tick sleeps too (no wakeups
+    /// 60 times a second for nothing, a little less heat while a menu sits open)
+    private var menuOpen = false {
+        didSet { displayLink?.isPaused = menuOpen }
+    }
     private var startedAt = Date()
     private var lastSize = CGSize.zero
     private var lastPortrait = false
@@ -771,10 +773,7 @@ final class N3DSGameViewController: UIViewController {
         miniScreenButton.addSubview(badge)
         overlay.addSubview(miniScreenButton)
 
-        menuButton.addTarget(self, action: #selector(showMenu), for: .touchUpInside)
-        fastButton.addTarget(self, action: #selector(toggleFastForward), for: .touchUpInside)
-        swapButton.addTarget(self, action: #selector(swapScreens), for: .touchUpInside)
-        [menuButton, fastButton, swapButton].forEach { view.addSubview($0) }
+        // (the menu, fast forward and swap buttons live in the quick menu now: HOME opens it)
 
         fpsLabel.font = .monospacedDigitSystemFont(ofSize: 11, weight: .semibold)
         fpsLabel.textColor = UIColor.white.withAlphaComponent(0.8)
@@ -960,6 +959,11 @@ final class N3DSGameViewController: UIViewController {
         for button in buttons {
             button.changed = { [weak self] key, pressed in
                 guard let self else { return }
+                // HOME opens Hinoki's quick menu (the 3DS HOME button is a tile in it)
+                if key == .home {
+                    if !pressed { showMenu() }
+                    return
+                }
                 if pressed { touchMask |= key.rawValue } else { touchMask &= ~key.rawValue }
             }
             overlay.addSubview(button)
@@ -1006,7 +1010,6 @@ final class N3DSGameViewController: UIViewController {
             let top = gameView.frame.maxY + 8 * u
             let shoulderW = 62 * u, shoulderH = 36 * u
             placeShoulders(left: left, right: right, top: top, width: shoulderW, height: shoulderH)
-            layoutIconRow(center: CGPoint(x: bounds.midX, y: top + shoulderH / 2))
 
             let small = 28 * u, pillW = 66 * u
             let rowY = bottom - small
@@ -1121,11 +1124,11 @@ final class N3DSGameViewController: UIViewController {
 
     /// SELECT and HOME on the left of the row, START on the right, the icon buttons in the middle (or not)
     private func placeSystemRow(center: CGPoint, pillW: CGFloat, height: CGFloat, withIcons: Bool) {
-        let icons: CGFloat = withIcons ? 3 * 30 + 2 * 10 + 24 : 12
+        // (no icon buttons any more: HOME opens the quick menu)
+        let icons: CGFloat = 12
         place(.select, CGRect(x: center.x - icons / 2 - pillW * 2 - 6, y: center.y - height / 2, width: pillW, height: height))
         place(.home, CGRect(x: center.x - icons / 2 - pillW, y: center.y - height / 2, width: pillW, height: height))
         place(.start, CGRect(x: center.x + icons / 2, y: center.y - height / 2, width: pillW, height: height))
-        if withIcons { layoutIconRow(center: center) }
     }
 
     // MARK: Comfort layout
@@ -1141,10 +1144,8 @@ final class N3DSGameViewController: UIViewController {
         if isPortrait {
             let left = safe.left + 16 * u, right = bounds.width - safe.right - 16 * u
             let top = gameView.frame.maxY + 8 * u
-            // narrow enough to leave the icon buttons the middle of the row
-            let shoulderW = 60 * u, shoulderH = 38 * u
+            let shoulderW = 72 * u, shoulderH = 40 * u
             placeShoulders(left: left, right: right, top: top, width: shoulderW, height: shoulderH)
-            layoutIconRow(center: CGPoint(x: bounds.midX, y: top + shoulderH / 2))
 
             let bottom = bounds.height - max(safe.bottom, 12) - 8 * u
             let areaTop = top + shoulderH + 10 * u
@@ -1286,7 +1287,6 @@ final class N3DSGameViewController: UIViewController {
         place(.select, CGRect(x: centreX - pillW * 1.5 - 6, y: rowY, width: pillW, height: small))
         place(.home, CGRect(x: centreX - pillW / 2, y: rowY, width: pillW, height: small))
         place(.start, CGRect(x: centreX + pillW / 2 + 6, y: rowY, width: pillW, height: small))
-        layoutIconRow(center: CGPoint(x: centreX, y: max(band.minY + 15, rowY - 26)))
         return circleFrame
     }
 
@@ -1343,7 +1343,6 @@ final class N3DSGameViewController: UIViewController {
         place(.select, CGRect(x: centreX - pillW * 1.5 - 6, y: rowY, width: pillW, height: small))
         place(.home, CGRect(x: centreX - pillW / 2, y: rowY, width: pillW, height: small))
         place(.start, CGRect(x: centreX + pillW / 2 + 6, y: rowY, width: pillW, height: small))
-        layoutIconRow(center: CGPoint(x: centreX, y: max(band.minY + 15, rowY - 26)))
         return circleFrame
     }
 
@@ -1527,15 +1526,6 @@ final class N3DSGameViewController: UIViewController {
         }
     }
 
-    private func layoutIconRow(center: CGPoint) {
-        let size: CGFloat = 30
-        let row = [menuButton, fastButton, swapButton]
-        let total = CGFloat(row.count) * size + CGFloat(row.count - 1) * 10
-        for (index, button) in row.enumerated() {
-            button.frame = CGRect(x: center.x - total / 2 + CGFloat(index) * (size + 10), y: center.y - size / 2, width: size, height: size)
-        }
-    }
-
     private var controllerConnected: Bool { GCController.current?.extendedGamepad != nil || GCController.controllers().contains { $0.extendedGamepad != nil } }
 
     private func applyControlsVisibility() {
@@ -1551,6 +1541,10 @@ final class N3DSGameViewController: UIViewController {
         for view in overlay.subviews where view !== miniScreenButton {
             if view === cstick || view === button(.zl) || view === button(.zr) {
                 view.isHidden = hidden || N3DSSettings.value("is_new_3ds") != "1"
+            } else if view === button(.home) {
+                // HOME stays (faintly): the quick menu is always a tap away
+                view.isHidden = false
+                view.alpha = hidden ? 0.4 : 1
             } else {
                 view.isHidden = hidden
             }
@@ -1657,7 +1651,6 @@ final class N3DSGameViewController: UIViewController {
         guard running else { return }
         fastForward.toggle()
         v3k_n3ds_set_fast_forward(fastForward, Int32(N3DSSettings.fastForwardSpeed))
-        fastButton.isOn = fastForward
         let speed = N3DSSettings.fastForwardSpeed
         showToast(fastForward ? (speed == 0 ? "Fast forward: as fast as possible" : "Fast forward: \(speed)%") : "Normal speed")
     }
@@ -1696,6 +1689,8 @@ final class N3DSGameViewController: UIViewController {
     private func applyThermalState() {
         guard running, N3DSSettings.coolDown else { return }
         let hot = ProcessInfo.processInfo.thermalState == .serious || ProcessInfo.processInfo.thermalState == .critical
+        // fast forward is the hottest thing a game can do: off once the phone is hot
+        if hot && fastForward { toggleFastForward() }
         let chosen = N3DSSettings.value("resolution_factor")
         if hot && !cooledDown && chosen != "1" {
             cooledDown = true
@@ -1763,7 +1758,7 @@ final class N3DSGameViewController: UIViewController {
             if !UserDefaults.standard.bool(forKey: "n3ds.controlsTipShown2") {
                 UserDefaults.standard.set(true, forKey: "n3ds.controlsTipShown2")
                 DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
-                    self?.showToast(L("Tip: slide your thumb between A B X Y; between two of them presses both. ☰ › Edit controls moves and resizes"))
+                    self?.showToast(L("Tip: slide your thumb between A B X Y; between two of them presses both. HOME opens the quick menu"))
                 }
             }
             UIView.animate(withDuration: 0.25) {
@@ -1945,63 +1940,76 @@ final class N3DSGameViewController: UIViewController {
 
     // MARK: Menu
 
+    private weak var quickMenu: GameQuickMenuView?
+
+    /// HOME (or the controller's Home button): the quick menu over the paused game. Pressed again, it closes.
     @objc private func showMenu() {
+        if let quickMenu {
+            quickMenu.close()
+            return
+        }
         guard !menuOpen else { return }
         menuOpen = true
         releaseTouchControls()
         if running { v3k_n3ds_set_paused(true) }
-        let sheet = UIAlertController(title: app.title, message: L("Paused"), preferredStyle: .actionSheet)
-        sheet.addAction(UIAlertAction(title: L("Resume"), style: .cancel) { [weak self] _ in self?.closeMenu() })
+        let quick = saveStates().first { $0.slot == 0 }
+        var items: [GameQuickMenuView.Item] = []
         if running {
-            sheet.addAction(UIAlertAction(title: L("Quick save"), style: .default) { [weak self] _ in
-                _ = v3k_n3ds_save_state(0)
-                self?.closeMenu()
-            })
-            let quick = saveStates().first { $0.slot == 0 }
-            let quickLoad = UIAlertAction(title: L("Quick load"), style: .default) { [weak self] _ in
-                _ = v3k_n3ds_load_state(0)
-                self?.closeMenu()
-            }
-            quickLoad.isEnabled = quick != nil
-            sheet.addAction(quickLoad)
-            sheet.addAction(UIAlertAction(title: L("Save state…"), style: .default) { [weak self] _ in self?.showStates(saving: true) })
-            sheet.addAction(UIAlertAction(title: L("Load state…"), style: .default) { [weak self] _ in self?.showStates(saving: false) })
-            sheet.addAction(UIAlertAction(title: fastForward ? L("Normal speed") : L("Fast forward"), style: .default) { [weak self] _ in
-                self?.closeMenu()
-                self?.toggleFastForward()
-            })
+            items += [
+                .init(symbol: "square.and.arrow.down.fill", title: L("Quick save")) { [weak self] in
+                    _ = v3k_n3ds_save_state(0)
+                    self?.showToast(L("Saved"))
+                },
+                .init(symbol: "clock.arrow.circlepath", title: L("Quick load"), enabled: quick != nil) { _ = v3k_n3ds_load_state(0) },
+                .init(symbol: "tray.and.arrow.down.fill", title: L("Save state…")) { [weak self] in
+                    self?.pauseForSheet()
+                    self?.showStates(saving: true)
+                },
+                .init(symbol: "tray.and.arrow.up.fill", title: L("Load state…")) { [weak self] in
+                    self?.pauseForSheet()
+                    self?.showStates(saving: false)
+                },
+                .init(symbol: "forward.fill", title: L("Fast forward"), active: fastForward) { [weak self] in self?.toggleFastForward() },
+            ]
         }
-        sheet.addAction(UIAlertAction(title: L("Swap screens"), style: .default) { [weak self] _ in
-            self?.swapScreens()
-            self?.closeMenu()
-        })
-        sheet.addAction(UIAlertAction(title: L("Screen layout…"), style: .default) { [weak self] _ in self?.showLayoutPicker() })
-        sheet.addAction(UIAlertAction(title: L("Edit controls (move and resize)"), style: .default) { [weak self] _ in
-            self?.menuOpen = false
-            self?.beginEditingControls()
-        })
-        sheet.addAction(UIAlertAction(title: controlsHidden ? L("Show touch controls") : L("Hide touch controls"), style: .default) { [weak self] _ in
-            guard let self else { return }
-            setControlsHidden(!controlsHidden)
-            closeMenu()
-        })
-        sheet.addAction(UIAlertAction(title: L("HOME Menu button"), style: .default) { [weak self] _ in
-            guard let self else { return }
-            closeMenu()
-            touchMask |= N3DSKey.home.rawValue
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { self.touchMask &= ~N3DSKey.home.rawValue }
-        })
-        sheet.addAction(UIAlertAction(title: L("Quit game"), style: .destructive) { [weak self] _ in
-            self?.menuOpen = false
-            self?.quit()
-        })
-        present(sheet: sheet)
+        items += [
+            .init(symbol: "arrow.up.arrow.down", title: L("Swap screens")) { [weak self] in self?.swapScreens() },
+            .init(symbol: "rectangle.split.2x1", title: L("Screen layout")) { [weak self] in
+                self?.pauseForSheet()
+                self?.showLayoutPicker()
+            },
+            .init(symbol: "slider.horizontal.below.square.and.square.filled", title: L("Edit layout")) { [weak self] in
+                self?.beginEditingControls()
+            },
+            .init(symbol: controlsHidden ? "gamecontroller.fill" : "eye.slash.fill",
+                  title: controlsHidden ? L("Show controls") : L("Hide controls"), active: controlsHidden) { [weak self] in
+                guard let self else { return }
+                setControlsHidden(!controlsHidden)
+            },
+            .init(symbol: "house.fill", title: L("3DS HOME")) { [weak self] in
+                guard let self else { return }
+                touchMask |= N3DSKey.home.rawValue
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { self.touchMask &= ~N3DSKey.home.rawValue }
+            },
+            .init(symbol: "xmark.circle.fill", title: L("Quit game"), destructive: true) { [weak self] in self?.quit() },
+        ]
+        let menu = GameQuickMenuView(items: items, paused: false, title: app.title, iconPath: app.iconPath, startedAt: startedAt,
+                                     detail: L("Paused"), resume: {}, onClose: { [weak self] in self?.closeMenu() })
+        quickMenu = menu
+        menu.present(in: view)
+    }
+
+    /// A tile that opens a list (save states, screen layouts): the game stays paused under it
+    private func pauseForSheet() {
+        menuOpen = true
+        if running { v3k_n3ds_set_paused(true) }
     }
 
     private func present(sheet: UIAlertController) {
         if let popover = sheet.popoverPresentationController {
-            popover.sourceView = menuButton
-            popover.sourceRect = menuButton.bounds
+            popover.sourceView = view
+            popover.sourceRect = CGRect(x: view.bounds.midX, y: view.bounds.midY, width: 1, height: 1)
+            popover.permittedArrowDirections = []
         }
         present(sheet, animated: true)
     }

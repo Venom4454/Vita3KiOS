@@ -61,6 +61,9 @@ struct PreviewApp: App {
             } else if scenario.hasPrefix("setup") {
                 // The first-run setup guide ("setup:<step>")
                 SetupGuideView(startAt: Int(scenario.split(separator: ":").last ?? "") ?? 0).environmentObject(model)
+            } else if scenario == "vitamenu" {
+                // the quick menu HOME opens, over the Vita controls
+                VitaPadPreview(openMenu: true).ignoresSafeArea()
             } else if scenario == "vitapad" {
                 // PS Vita touch controls over a black game
                 VitaPadPreview().ignoresSafeArea()
@@ -138,18 +141,27 @@ struct N3DSPreviewHost: UIViewControllerRepresentable {
 }
 
 struct VitaPadPreview: UIViewRepresentable {
+    var openMenu = false
+
     /// Keeps the pad the size of the window as it turns to landscape
     final class Host: UIView {
         let pad = ControlsOverlayView(frame: .zero)
+        var openMenu = false
         override func layoutSubviews() {
             super.layoutSubviews()
-            if pad.superview == nil { addSubview(pad) }
+            if pad.superview == nil {
+                addSubview(pad)
+                if openMenu {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in self?.pad.showMenu(fromController: false) }
+                }
+            }
             pad.frame = bounds
         }
     }
 
     func makeUIView(context: Context) -> UIView {
         let host = Host()
+        host.openMenu = openMenu
         host.backgroundColor = .black
         return host
     }

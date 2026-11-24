@@ -539,7 +539,7 @@ struct MacroButtonsView: View {
                     }
                 }
             } footer: {
-                Text("Up to four buttons that hold several Vita buttons at once. One can also steer a stick while you hold it: hold to aim and drag the same finger to look around. They appear on screen the next time a game starts; move and resize them with Edit control layout in the game menu.")
+                Text("Up to four buttons that hold several Vita buttons at once. One can also steer a stick while you hold it: hold to aim and drag the same finger to look around. They appear on screen the next time a game starts; move and resize them with Edit layout in the quick menu (HOME).")
             }
         }
         .navigationTitle("Macro buttons")

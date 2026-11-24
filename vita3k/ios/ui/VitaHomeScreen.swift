@@ -206,13 +206,14 @@ enum VitaHomeLayout {
 /// One thing on the home screen: a game, or one of the system applications
 enum VitaHomeItem: Identifiable, Hashable {
     case game(GameApp)
-    case search, contentManager, settings, themes, music, classicLibrary
+    case search, contentManager, trophies, settings, themes, music, classicLibrary
 
     var id: String {
         switch self {
         case .game(let app): "game." + app.titleId
         case .search: "sys.search"
         case .contentManager: "sys.content"
+        case .trophies: "sys.trophies"
         case .settings: "sys.settings"
         case .themes: "sys.themes"
         case .music: "sys.music"
@@ -225,6 +226,7 @@ enum VitaHomeItem: Identifiable, Hashable {
         case .game(let app): app.title
         case .search: "Search"
         case .contentManager: "Content Manager"
+        case .trophies: "Trophies"
         case .settings: "Settings"
         case .themes: "Themes"
         case .music: "Music"
@@ -265,9 +267,9 @@ struct VitaHomeView: View {
     private var items: [VitaHomeItem] {
         // The Vita puts the system applications on the first page and new games after them
         let games = apps.sorted { ($0.lastPlayed, $1.title) > ($1.lastPlayed, $0.title) }.map { VitaHomeItem.game($0) }
-        // Content Manager stays a bubble (always on the first page); the other system applications are
-        // buttons in the information bar
-        return [.contentManager] + games
+        // Content Manager and Trophies stay bubbles (always on the first page), as on the Vita; the other
+        // system applications are buttons in the information bar
+        return [.contentManager, .trophies] + games
     }
 
     private var recentApps: [GameApp] {
@@ -409,6 +411,7 @@ struct VitaHomeView: View {
         case .game(let app): open(app)
         case .search: withAnimation(.easeOut(duration: 0.2)) { searching = true }
         case .contentManager: openPanel(.contentManager)
+        case .trophies: openPanel(.trophies)
         case .settings: openPanel(.settings)
         case .themes: openPanel(.themes)
         case .music: openPanel(.music)
@@ -427,6 +430,7 @@ struct VitaHomeView: View {
             case "settings": panel = .settings
             case "music": panel = .music
             case "content": panel = .contentManager
+            case "trophies": panel = .trophies
             default: break
             }
         }
@@ -902,6 +906,8 @@ struct VitaBubbleView: View {
                     systemIcon("magnifyingglass", [Color(red: 0.98, green: 0.62, blue: 0.16), Color(red: 0.9, green: 0.38, blue: 0.05)])
                 case .contentManager:
                     systemIcon("arrow.down.circle", [Color(red: 0.25, green: 0.7, blue: 0.95), Color(red: 0.05, green: 0.4, blue: 0.75)])
+                case .trophies:
+                    systemIcon("trophy.fill", [Color(red: 0.3, green: 0.55, blue: 0.95), Color(red: 0.12, green: 0.22, blue: 0.6)])
                 case .settings:
                     systemIcon("gearshape.fill", [Color(white: 0.62), Color(white: 0.32)])
                 case .themes:
@@ -1821,11 +1827,12 @@ struct VitaSearch: View {
 // MARK: - System panels
 
 enum VitaPanelKind: Hashable {
-    case contentManager, settings, themes, music, notifications
+    case contentManager, trophies, settings, themes, music, notifications
 
     var title: String {
         switch self {
         case .contentManager: "Content Manager"
+        case .trophies: "Trophies"
         case .settings: "Settings"
         case .themes: "Themes"
         case .music: "Music"
@@ -1836,6 +1843,7 @@ enum VitaPanelKind: Hashable {
     var symbol: String {
         switch self {
         case .contentManager: "arrow.down.circle"
+        case .trophies: "trophy.fill"
         case .settings: "gearshape.fill"
         case .themes: "paintpalette.fill"
         case .music: "music.note"
@@ -1907,6 +1915,13 @@ struct VitaPanel: View {
             SettingsView(onDone: close).environmentObject(model)
                 .padding(.horizontal, space.len(max(space.inset, 0)))
         case .contentManager: contentManager
+        case .trophies:
+            // the trophy list, inside the panel like the Vita's Trophies application
+            NavigationStack {
+                // the panel's title bar names it already
+                TrophiesView().scrollContentBackground(.hidden).toolbar(.hidden, for: .navigationBar)
+            }
+                .padding(.horizontal, space.len(max(space.inset, 0)))
         case .themes: themes
         case .music: music
         case .notifications: notifications

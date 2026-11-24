@@ -152,7 +152,15 @@ final class PadButtonView: UIView {
         layer.cornerRadius = min(bounds.width, bounds.height) / 2
     }
 
+    /// A button of Hinoki's own (HOME): tapped, not a Vita button held
+    var onTap: (() -> Void)?
+
     private func setPressed(_ pressed: Bool) {
+        if onTap != nil {
+            backgroundColor = pressed ? pressedFill : baseFill
+            if pressed && haptics { feedback.impactOccurred() }
+            return
+        }
         if let axis {
             PadPress.trigger(axis, pressed)
         } else {
@@ -163,7 +171,10 @@ final class PadButtonView: UIView {
     }
 
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) { setPressed(true) }
-    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) { setPressed(false) }
+    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
+        setPressed(false)
+        if let onTap, let touch = touches.first, bounds.insetBy(dx: -20, dy: -20).contains(touch.location(in: self)) { onTap() }
+    }
     override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) { setPressed(false) }
 }
 
@@ -320,6 +331,8 @@ enum ControlGroup: String, CaseIterable {
     // Advanced touch › move buttons one by one: each d-pad, face, Start and Select button on its own.
     // After the clusters, so a cluster's own move (made before) still applies and these add to it
     case dpadUp, dpadDown, dpadLeft, dpadRight, triangle, circle, cross, square, select, start
+    // HOME: opens the quick menu
+    case home
 
     /// Moved one by one (shown in the editor instead of their cluster when that's on)
     var isSingleButton: Bool {
@@ -412,6 +425,9 @@ final class ControlsOverlayView: UIView {
     private let square = PadButtonView(button: Pad.square, title: "□", fontSize: 22)
     private let select = PadButtonView(button: Pad.select, title: "SELECT", fontSize: 10)
     private let start = PadButtonView(button: Pad.start, title: "START", fontSize: 10)
+    /// Where the Vita's PS button is (bottom left): opens the quick menu. It stays on screen, faintly,
+    /// while the other controls are hidden, so the menu is always a tap away.
+    private let home = PadButtonView(button: -1, title: "HOME", fontSize: 10)
     private let leftStick = StickView(xAxis: Pad.leftX, yAxis: Pad.leftY)
     private let rightStick = StickView(xAxis: Pad.rightX, yAxis: Pad.rightY)
     // PS TV mode only (a PS TV controller's extra buttons): shown while the running game uses it
@@ -429,24 +445,9 @@ final class ControlsOverlayView: UIView {
     private let separateButtons = TouchTuning.separateButtons
     private let zoneSplit = min(max(TouchTuning.zoneSplit, 0.25), 0.75)
     private let zoneTop = min(max(TouchTuning.zoneTop, 0), 0.6)
-    private let exitButton = UIButton(type: .system)
-    private let hideButton = UIButton(type: .system)
-    private let pauseButton = UIButton(type: .system)
-    private let rearButton = UIButton(type: .system)
     private let pausedBanner = UIButton(type: .system)
-    // The last button of the top row tucks the row away (swiping up on it works too); a small button in
-    // the screen's top-left corner, outside the controls (beside the camera in landscape), brings it back
-    private let collapseButton = UIButton(type: .system)
-    private let topHandle = UIButton(type: .system)
-    private var topRowHidden = UserDefaults.standard.bool(forKey: "v3k.topButtonsHidden") {
-        didSet {
-            UserDefaults.standard.set(topRowHidden, forKey: "v3k.topButtonsHidden")
-            applyTopRow()
-        }
-    }
     private let toastLabel = UILabel()
     private var toastGeneration = 0
-    private let showRearButton = UserDefaults.standard.object(forKey: "v3k.touchRearButton") as? Bool ?? true
     private var landscapePlacements = TouchLayout.load()
     private var portraitPlacements = TouchLayout.load(portrait: true)
     private var isPortrait: Bool { bounds.height > bounds.width }
@@ -459,7 +460,7 @@ final class ControlsOverlayView: UIView {
     private var hiddenBeforeEditing = false
 
     private var controls: [UIView] {
-        [l, r, up, down, left, right, triangle, circle, cross, square, select, start, leftStick, rightStick, l2, r2, l3, r3] + macroButtons
+        [l, r, up, down, left, right, triangle, circle, cross, square, select, start, home, leftStick, rightStick, l2, r2, l3, r3] + macroButtons
     }
 
     private var controlsHidden = UserDefaults.standard.bool(forKey: "v3k.touchControlsHidden") {
@@ -480,6 +481,7 @@ final class ControlsOverlayView: UIView {
     private var shortcutTimer: Timer?
     private var shortcutHeldSince: Date?
     private weak var menuAlert: UIAlertController?
+    private weak var quickMenu: GameQuickMenuView?
     // Settings › Performance overlay (or the game menu, mid-game); stays visible when the controls are hidden
     private let hud = PerformanceHUDView(frame: .zero)
 
@@ -495,23 +497,10 @@ final class ControlsOverlayView: UIView {
         insertSubview(rightStick, at: 0)
         insertSubview(leftStick, at: 0)
 
-        exitButton.setImage(UIImage(systemName: "xmark.circle.fill"), for: .normal)
-        exitButton.tintColor = UIColor.white.withAlphaComponent(0.85)
-        exitButton.backgroundColor = UIColor.black.withAlphaComponent(0.6)
-        exitButton.addTarget(self, action: #selector(exitTapped), for: .touchUpInside)
-        addSubview(exitButton)
-
-        hideButton.tintColor = UIColor.white.withAlphaComponent(0.85)
-        hideButton.backgroundColor = UIColor.black.withAlphaComponent(0.6)
-        hideButton.addTarget(self, action: #selector(hideTapped), for: .touchUpInside)
-        addSubview(hideButton)
-
-        pauseButton.setImage(UIImage(systemName: "pause.fill"), for: .normal)
-        pauseButton.tintColor = UIColor.white.withAlphaComponent(0.85)
-        pauseButton.backgroundColor = UIColor.black.withAlphaComponent(0.6)
-        pauseButton.addTarget(self, action: #selector(pauseTapped), for: .touchUpInside)
-        pauseButton.accessibilityLabel = "Pause"
-        addSubview(pauseButton)
+        // The Vita's layout: no buttons across the top. HOME (bottom left) opens the quick menu, which has
+        // what the top row had (pause, show/hide, rear touchpad, quit) and the rest of the game menu
+        home.onTap = { [weak self] in self?.showMenu(fromController: false) }
+        home.accessibilityLabel = L("Quick menu")
 
         // Covers the screen while the player has paused the game; tapping it resumes
         var bannerConfig = UIButton.Configuration.plain()
@@ -528,37 +517,6 @@ final class ControlsOverlayView: UIView {
         pausedBanner.isHidden = true
         addSubview(pausedBanner)
 
-        rearButton.setImage(UIImage(systemName: "hand.point.up.left"), for: .normal)
-        rearButton.tintColor = UIColor.white.withAlphaComponent(0.85)
-        rearButton.backgroundColor = UIColor.black.withAlphaComponent(0.6)
-        rearButton.addTarget(self, action: #selector(rearTapped), for: .touchUpInside)
-        rearButton.accessibilityLabel = "Rear touchpad"
-        rearButton.isHidden = !showRearButton
-        addSubview(rearButton)
-
-        collapseButton.setImage(UIImage(systemName: "chevron.up"), for: .normal)
-        collapseButton.tintColor = UIColor.white.withAlphaComponent(0.85)
-        collapseButton.backgroundColor = UIColor.black.withAlphaComponent(0.6)
-        collapseButton.accessibilityLabel = "Hide these buttons"
-        collapseButton.addTarget(self, action: #selector(hideTopRow), for: .touchUpInside)
-        addSubview(collapseButton)
-
-        topHandle.setImage(UIImage(systemName: "chevron.down", withConfiguration: UIImage.SymbolConfiguration(pointSize: 11, weight: .bold)), for: .normal)
-        topHandle.tintColor = UIColor.white.withAlphaComponent(0.7)
-        topHandle.backgroundColor = UIColor.black.withAlphaComponent(0.3)
-        topHandle.accessibilityLabel = "Show buttons"
-        topHandle.addTarget(self, action: #selector(showTopRow), for: .touchUpInside)
-        addSubview(topHandle)
-        let handleSwipe = UISwipeGestureRecognizer(target: self, action: #selector(showTopRow))
-        handleSwipe.direction = .down
-        topHandle.addGestureRecognizer(handleSwipe)
-        for button in [exitButton, pauseButton, hideButton, rearButton, collapseButton] {
-            let swipe = UISwipeGestureRecognizer(target: self, action: #selector(hideTopRow))
-            swipe.direction = .up
-            button.addGestureRecognizer(swipe)
-        }
-        applyTopRow()
-
         toastLabel.font = .systemFont(ofSize: 14, weight: .semibold)
         toastLabel.textColor = .white
         toastLabel.textAlignment = .center
@@ -570,7 +528,6 @@ final class ControlsOverlayView: UIView {
         addSubview(toastLabel)
         addSubview(hud)
         hud.setActive(HUDSettings.enabled)
-        updateRearButton()
 
         // Controller theme
         let theme = ControllerTheme.current
@@ -578,7 +535,7 @@ final class ControlsOverlayView: UIView {
             let (title, faceColor) = theme.face(position)
             button.style(title: title, color: faceColor, theme: theme, faceButton: true)
         }
-        for button in [l, r, up, down, left, right, select, start, l2, r2, l3, r3] {
+        for button in [l, r, up, down, left, right, select, start, home, l2, r2, l3, r3] {
             button.style(color: theme.tint, theme: theme, faceButton: false)
         }
         for stick in [leftStick, rightStick] {
@@ -693,13 +650,10 @@ final class ControlsOverlayView: UIView {
         let hidden = editor == nil && (controlsHidden || (hideWithController && controllerConnected))
         controls.forEach { $0.isHidden = hidden }
         pstvButtons.forEach { $0.isHidden = hidden || !pstvActive }
-        hideButton.setImage(UIImage(systemName: controlsHidden ? "gamecontroller" : "eye.slash"), for: .normal)
+        // HOME stays, faintly while the rest are hidden
+        home.isHidden = false
+        home.alpha = hidden ? min(opacity, 0.35) : opacity
         if hidden { releaseAll() }
-        updateRearButton()
-    }
-
-    @objc private func exitTapped() {
-        showMenu(fromController: false)
     }
 
     /// Every on-screen and macro press let go
@@ -719,62 +673,51 @@ final class ControlsOverlayView: UIView {
         releaseAll()
         v3k_set_game_paused(1, paused)
         let isPaused = v3k_game_paused_by_user()
-        pauseButton.setImage(UIImage(systemName: isPaused ? "play.fill" : "pause.fill"), for: .normal)
-        pauseButton.accessibilityLabel = isPaused ? "Resume" : "Pause"
         pausedBanner.isHidden = !isPaused
         if isPaused {
             pausedBanner.frame = bounds
-            insertSubview(pausedBanner, belowSubview: exitButton)
+            insertSubview(pausedBanner, belowSubview: home)
         }
     }
 
     /// While the game menu is open the game is paused too; it resumes when the menu closes
     private func menuClosed() {
         menuAlert = nil
+        quickMenu = nil
         v3k_set_game_paused(2, false)
     }
 
     func showMenu(fromController: Bool) {
-        guard menuAlert == nil, editor == nil, let root = window?.rootViewController else { return }
+        // HOME (or the controller's Home button) again closes it
+        if let quickMenu {
+            quickMenu.close()
+            return
+        }
+        guard menuAlert == nil, editor == nil, let host = window?.rootViewController?.view else { return }
         releaseAll()
         v3k_set_game_paused(2, true)
-        let alert = UIAlertController(title: L("Game menu"), message: fromController
-            ? L("Press the controller's Home/PS button, or hold Select + Start, to open this menu. The game is paused while it is open.")
-            : L("The game is paused while this menu is open."), preferredStyle: .alert)
-        alert.addAction(UIAlertAction(title: L("Take screenshot"), style: .default) { [weak self] _ in
-            self?.menuClosed()
-            v3k_request_screenshot()
-        })
         let paused = v3k_game_paused_by_user()
-        alert.addAction(UIAlertAction(title: paused ? L("Resume game") : L("Pause game"), style: .default) { [weak self] _ in
-            self?.menuClosed()
-            self?.setUserPaused(!paused)
-        })
-        alert.addAction(UIAlertAction(title: v3k_rear_touch() ? L("Touch the front screen") : L("Touch the rear touchpad"), style: .default) { [weak self] _ in
-            self?.menuClosed()
-            self?.rearTapped()
-        })
-        alert.addAction(UIAlertAction(title: L("Edit control layout"), style: .default) { [weak self] _ in
-            self?.menuClosed()
-            self?.beginEditing()
-        })
-        alert.addAction(UIAlertAction(title: controlsHidden ? L("Show touch controls") : L("Hide touch controls"), style: .default) { [weak self] _ in
-            self?.menuClosed()
-            self?.controlsHidden.toggle()
-        })
-        alert.addAction(UIAlertAction(title: hud.active ? L("Hide performance overlay") : L("Show performance overlay"), style: .default) { [weak self] _ in
-            self?.menuClosed()
-            self?.togglePerformanceOverlay()
-        })
-        alert.addAction(UIAlertAction(title: L("Quit game"), style: .destructive) { [weak self] _ in
-            self?.menuClosed()
-            self?.confirmQuit()
-        })
-        alert.addAction(UIAlertAction(title: L("Keep playing"), style: .cancel) { [weak self] _ in
-            self?.menuClosed()
-        })
-        menuAlert = alert
-        (root.presentedViewController ?? root).present(alert, animated: true)
+        let rear = v3k_rear_touch()
+        let items: [GameQuickMenuView.Item] = [
+            .init(symbol: paused ? "play.fill" : "pause.fill", title: paused ? L("Resume game") : L("Pause game"), active: paused) { [weak self] in
+                self?.setUserPaused(!paused)
+            },
+            .init(symbol: "camera.fill", title: L("Screenshot")) { v3k_request_screenshot() },
+            .init(symbol: "hand.point.up.left.fill", title: L("Rear touchpad"), active: rear) { [weak self] in self?.rearTapped() },
+            .init(symbol: controlsHidden ? "gamecontroller.fill" : "eye.slash.fill",
+                  title: controlsHidden ? L("Show controls") : L("Hide controls"), active: controlsHidden) { [weak self] in
+                self?.controlsHidden.toggle()
+            },
+            .init(symbol: "slider.horizontal.below.square.and.square.filled", title: L("Edit layout")) { [weak self] in self?.beginEditing() },
+            .init(symbol: "gauge.with.dots.needle.67percent", title: L("Performance"), active: hud.active) { [weak self] in
+                self?.togglePerformanceOverlay()
+            },
+            .init(symbol: "xmark.circle.fill", title: L("Quit game"), destructive: true) { [weak self] in self?.confirmQuit() },
+        ]
+        let menu = GameQuickMenuView(items: items, paused: paused, resume: { [weak self] in self?.setUserPaused(false) },
+                                     onClose: { [weak self] in self?.menuClosed() })
+        quickMenu = menu
+        menu.present(in: host)
     }
 
     /// Same switch as Settings › Performance overlay, so the choice sticks for the next game
@@ -807,37 +750,8 @@ final class ControlsOverlayView: UIView {
     @objc private func rearTapped() {
         let rear = !v3k_rear_touch()
         v3k_set_rear_touch(rear)
-        updateRearButton()
-        showToast(rear ? "Touches go to the rear touchpad" : "Touches go to the front screen")
+        showToast(rear ? L("Touches go to the rear touchpad") : L("Touches go to the front screen"))
     }
-
-    private func updateRearButton() {
-        let rear = v3k_rear_touch()
-        rearButton.backgroundColor = rear ? Theme.accentUIColor.withAlphaComponent(0.85) : UIColor.black.withAlphaComponent(0.6)
-        rearButton.isHidden = !(showRearButton || rear) || editor != nil || topRowHidden
-    }
-
-    private func applyTopRow() {
-        let editing = editor != nil
-        [exitButton, pauseButton, hideButton, collapseButton].forEach { $0.isHidden = editing || topRowHidden }
-        topHandle.isHidden = editing || !topRowHidden
-        updateRearButton()
-    }
-
-    /// The button that brings the top row back: a small dot in the screen's top-left corner. In landscape it
-    /// sits in the strip beside the camera (outside the game picture's controls); in portrait, left of
-    /// the camera in the status bar's band, above the game picture.
-    private func layoutTopHandle() {
-        let size: CGFloat = 26
-        let insets = safeAreaInsets
-        let x = insets.left >= size + 8 ? (insets.left - size) / 2 : 4
-        let y = isPortrait ? max((insets.top - size) / 2, 4) : 6
-        topHandle.frame = CGRect(x: bounds.minX + x, y: bounds.minY + y, width: size, height: size)
-        topHandle.layer.cornerRadius = size / 2
-    }
-
-    @objc private func hideTopRow() { topRowHidden = true }
-    @objc private func showTopRow() { topRowHidden = false }
 
     func showToast(_ message: String) {
         toastGeneration += 1
@@ -863,13 +777,11 @@ final class ControlsOverlayView: UIView {
         if controlsHidden { controlsHidden = false }
         controls.forEach { $0.isHidden = false; $0.isUserInteractionEnabled = false }
         pstvButtons.forEach { $0.isHidden = !pstvActive }
-        [exitButton, pauseButton, hideButton, rearButton].forEach { $0.isHidden = true }
         let newEditor = LayoutEditorView(overlay: self)
         newEditor.frame = bounds
         newEditor.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         addSubview(newEditor)
         editor = newEditor
-        applyTopRow()
         setNeedsLayout()
         layoutIfNeeded()
         newEditor.refresh()
@@ -886,8 +798,12 @@ final class ControlsOverlayView: UIView {
         self.editor = nil
         controls.forEach { $0.isUserInteractionEnabled = true }
         controlsHidden = hiddenBeforeEditing
-        applyTopRow()
         setNeedsLayout()
+    }
+
+    /// SELECT and START moved by the player before they went to the bottom-right corner: theirs stay put
+    private var keepsOldStartSelect: Bool {
+        [ControlGroup.startSelect, .select, .start].contains { placement(of: $0) != GroupPlacement() }
     }
 
     var layoutArea: CGRect { isPortrait ? portraitControlsArea : bounds.inset(by: safeAreaInsets).insetBy(dx: 12, dy: 10) }
@@ -917,6 +833,7 @@ final class ControlsOverlayView: UIView {
         case .square: [square]
         case .select: [select]
         case .start: [start]
+        case .home: [home]
         }
     }
 
@@ -994,10 +911,6 @@ final class ControlsOverlayView: UIView {
         }
     }
 
-    @objc private func hideTapped() {
-        controlsHidden.toggle()
-    }
-
     override func layoutSubviews() {
         super.layoutSubviews()
         pausedBanner.frame = bounds
@@ -1028,16 +941,26 @@ final class ControlsOverlayView: UIView {
         leftStick.frame = CGRect(x: area.minX + clusterSize * 0.75, y: area.maxY - stickSize, width: stickSize, height: stickSize)
         rightStick.frame = CGRect(x: area.maxX - clusterSize * 0.75 - stickSize, y: area.maxY - stickSize, width: stickSize, height: stickSize)
 
-        // Select / Start, bottom centre
-        let smallWidth = unit * 1.4, smallHeight = unit * 0.55
-        select.frame = CGRect(x: area.midX - smallWidth - 8, y: area.maxY - smallHeight, width: smallWidth, height: smallHeight)
-        start.frame = CGRect(x: area.midX + 8, y: area.maxY - smallHeight, width: smallWidth, height: smallHeight)
+        // Where a Vita has them: HOME (the PS button) in the bottom-left corner, SELECT and START side by
+        // side in the bottom-right one, each outside its stick. Someone who had moved SELECT and START
+        // keeps them where they put them (their move counts from the old place, bottom centre).
+        let smallWidth = unit * 1.05, smallHeight = unit * 0.5
+        let bottomY = area.maxY - smallHeight
+        if keepsOldStartSelect {
+            let oldWidth = unit * 1.4, oldHeight = unit * 0.55
+            select.frame = CGRect(x: area.midX - oldWidth - 8, y: area.maxY - oldHeight, width: oldWidth, height: oldHeight)
+            start.frame = CGRect(x: area.midX + 8, y: area.maxY - oldHeight, width: oldWidth, height: oldHeight)
+        } else {
+            start.frame = CGRect(x: area.maxX - smallWidth, y: bottomY, width: smallWidth, height: smallHeight)
+            select.frame = CGRect(x: start.frame.minX - unit * 0.15 - smallWidth, y: bottomY, width: smallWidth, height: smallHeight)
+        }
+        home.frame = CGRect(x: area.minX + unit * 0.15, y: bottomY, width: smallWidth, height: smallHeight)
 
-        // PS TV: L2 / R2 beside the shoulder buttons, L3 / R3 in the bottom corners
+        // PS TV: L2 / R2 beside the shoulder buttons, L3 / R3 just inside the sticks at the bottom
         l2.frame = CGRect(x: l.frame.maxX + 8, y: area.minY, width: unit * 1.4, height: unit * 0.8)
         r2.frame = CGRect(x: r.frame.minX - 8 - unit * 1.4, y: area.minY, width: unit * 1.4, height: unit * 0.8)
-        l3.frame = CGRect(x: area.minX, y: area.maxY - unit * 0.6, width: unit * 1.1, height: unit * 0.6)
-        r3.frame = CGRect(x: area.maxX - unit * 1.1, y: area.maxY - unit * 0.6, width: unit * 1.1, height: unit * 0.6)
+        l3.frame = CGRect(x: leftStick.frame.maxX + unit * 0.2, y: area.maxY - unit * 0.6, width: unit * 1.1, height: unit * 0.6)
+        r3.frame = CGRect(x: rightStick.frame.minX - unit * 1.3, y: area.maxY - unit * 0.6, width: unit * 1.1, height: unit * 0.6)
 
         // Macros: a column beside the face buttons
         let macroSize = unit * 0.9
@@ -1053,24 +976,12 @@ final class ControlsOverlayView: UIView {
         applyPlacements(in: area)
         applyStickStyle(zones: stickZones(top: area.minY + unit))
 
-        // Menu, show/hide, rear touchpad and the button that tucks them away, top centre
-        let topButtons = showRearButton ? [exitButton, pauseButton, hideButton, rearButton, collapseButton] : [exitButton, pauseButton, hideButton, collapseButton]
-        let rowWidth = CGFloat(topButtons.count) * 36 + CGFloat(topButtons.count - 1) * 8
-        for (index, button) in topButtons.enumerated() {
-            button.frame = CGRect(x: area.midX - rowWidth / 2 + CGFloat(index) * 44, y: area.minY, width: 36, height: 36)
-            button.layer.cornerRadius = 18
-        }
-        if !showRearButton {
-            rearButton.frame = CGRect(x: hideButton.frame.maxX + 8, y: area.minY, width: 36, height: 36)
-            rearButton.layer.cornerRadius = 18
-        }
-        layoutTopHandle()
         if let editor { bringSubviewToFront(editor); editor.refresh() }
 
         if !hud.isHidden {
             let size = hud.sizeThatFits(bounds.size)
             // Below the shoulder buttons at the top, above the screen edge at the bottom
-            let top = max(l.frame.maxY, r.frame.maxY, area.minY + 36) + 8
+            let top = max(l.frame.maxY, r.frame.maxY) + 8
             let bottom = area.maxY - size.height
             let origin: CGPoint
             switch hud.corner {
@@ -1095,31 +1006,28 @@ final class ControlsOverlayView: UIView {
         portraitControlsArea = controls
         let unit = min(max(area.width * 0.15, 44), 70) * scale
 
-        // Shoulder buttons along the top of the controls, the menu buttons between them
+        // Shoulder buttons along the top of the controls
         l.frame = CGRect(x: controls.minX, y: controls.minY, width: unit * 1.7, height: unit * 0.75)
         r.frame = CGRect(x: controls.maxX - unit * 1.7, y: controls.minY, width: unit * 1.7, height: unit * 0.75)
-        let topButtons = showRearButton ? [exitButton, pauseButton, hideButton, rearButton, collapseButton] : [exitButton, pauseButton, hideButton, collapseButton]
-        let rowWidth = CGFloat(topButtons.count) * 36 + CGFloat(topButtons.count - 1) * 8
-        for (index, button) in topButtons.enumerated() {
-            button.frame = CGRect(x: controls.midX - rowWidth / 2 + CGFloat(index) * 44, y: controls.minY + (unit * 0.75 - 36) / 2, width: 36, height: 36)
-            button.layer.cornerRadius = 18
+        // Along the bottom as on a Vita: HOME at the left, SELECT and START at the right (or where the player
+        // had moved them, from the old place in the middle); d-pad and face buttons above, sticks between
+        let smallWidth = unit * 1.15, smallHeight = unit * 0.5
+        let bottomY = controls.maxY - smallHeight
+        if keepsOldStartSelect {
+            let oldWidth = unit * 1.4, oldHeight = unit * 0.55
+            select.frame = CGRect(x: controls.midX - oldWidth - 8, y: controls.maxY - oldHeight, width: oldWidth, height: oldHeight)
+            start.frame = CGRect(x: controls.midX + 8, y: controls.maxY - oldHeight, width: oldWidth, height: oldHeight)
+        } else {
+            start.frame = CGRect(x: controls.maxX - smallWidth, y: bottomY, width: smallWidth, height: smallHeight)
+            select.frame = CGRect(x: start.frame.minX - 8 - smallWidth, y: bottomY, width: smallWidth, height: smallHeight)
         }
-        if !showRearButton {
-            rearButton.frame = CGRect(x: hideButton.frame.maxX + 8, y: hideButton.frame.minY, width: 36, height: 36)
-            rearButton.layer.cornerRadius = 18
-        }
-        layoutTopHandle()
-
-        // Select / Start at the bottom, d-pad and face buttons above, sticks between them
-        let smallWidth = unit * 1.4, smallHeight = unit * 0.55
-        select.frame = CGRect(x: controls.midX - smallWidth - 8, y: controls.maxY - smallHeight, width: smallWidth, height: smallHeight)
-        start.frame = CGRect(x: controls.midX + 8, y: controls.maxY - smallHeight, width: smallWidth, height: smallHeight)
+        home.frame = CGRect(x: controls.minX, y: bottomY, width: smallWidth, height: smallHeight)
 
         // PS TV: L2 / R2 under L / R (the clusters move down to make room), L3 / R3 in the bottom corners
         l2.frame = CGRect(x: controls.minX, y: l.frame.maxY + 4, width: unit * 1.7, height: unit * 0.6)
         r2.frame = CGRect(x: controls.maxX - unit * 1.7, y: r.frame.maxY + 4, width: unit * 1.7, height: unit * 0.6)
-        l3.frame = CGRect(x: controls.minX, y: controls.maxY - smallHeight, width: unit * 1.0, height: smallHeight)
-        r3.frame = CGRect(x: controls.maxX - unit * 1.0, y: controls.maxY - smallHeight, width: unit * 1.0, height: smallHeight)
+        l3.frame = CGRect(x: home.frame.maxX + 8, y: bottomY, width: unit * 1.0, height: smallHeight)
+        r3.frame = CGRect(x: (keepsOldStartSelect ? controls.maxX : select.frame.minX - 8) - unit * 1.0, y: bottomY, width: unit * 1.0, height: smallHeight)
         let shouldersBottom = pstvActive ? l2.frame.maxY : l.frame.maxY
 
         let clusterSize = unit * 3
