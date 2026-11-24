@@ -105,6 +105,13 @@ struct LibraryView: View {
         return sorted.filter { starred.contains($0.titleId) } + sorted.filter { !starred.contains($0.titleId) }
     }
 
+    /// Starred games first, the rest in their order (the PS Vita home screen's bubbles)
+    private func favoritesFirst(_ apps: [GameApp]) -> [GameApp] {
+        let starred = favorites
+        guard !starred.isEmpty else { return apps }
+        return apps.filter { starred.contains($0.titleId) } + apps.filter { !starred.contains($0.titleId) }
+    }
+
     private var favorites: Set<String> {
         Set(favoritesRaw.split(separator: ",").map(String.init))
     }
@@ -182,7 +189,7 @@ struct LibraryView: View {
                 .refreshable { await MainActor.run { model.refresh() } }
 
                 if vitaHome {
-                    VitaHomeView(apps: model.apps, onLaunch: { requestLaunch($0) }, onDetails: { gameDetails = $0 },
+                    VitaHomeView(apps: favoritesFirst(model.apps), onLaunch: { requestLaunch($0) }, onDetails: { gameDetails = $0 },
                                  onDelete: { pendingDelete = $0 }, onDeleteSave: { pendingDeleteSave = $0 },
                                  onImportFiles: { openImporter([.item]) }, onImportFolder: { openImporter([.folder]) },
                                  onEnterZrif: { showingZrifEntry = true })

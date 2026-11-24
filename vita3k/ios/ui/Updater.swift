@@ -127,9 +127,10 @@ final class Updater: ObservableObject {
             return compareVersions(release.version, currentVersion) > 0
         }
         // A test build: newer only if the release holds commits this build doesn't have
-        guard let commit, !commit.isEmpty else { return false }
+        let full = Bundle.main.infoDictionary?["V3KCommitFull"] as? String
+        guard let sha = full ?? Self.commit, !sha.isEmpty else { return false }
         struct Comparison: Decodable { let status: String; let ahead_by: Int }
-        let (data, response) = try await URLSession.shared.data(for: request("compare/\(commit)...\(release.tag)"))
+        let (data, response) = try await URLSession.shared.data(for: request("compare/\(sha)...\(release.tag)"))
         guard (response as? HTTPURLResponse)?.statusCode == 200 else { return false }
         let comparison = try JSONDecoder().decode(Comparison.self, from: data)
         return (comparison.status == "ahead" || comparison.status == "diverged") && comparison.ahead_by > 0

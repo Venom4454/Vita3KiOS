@@ -252,6 +252,7 @@ struct VitaHomeView: View {
     @AppStorage("v3k.vitaHome") private var vitaHome = false
     @AppStorage("v3k.vitaHome.lockScreen") private var showStartScreen = true
     @AppStorage("v3k.vitaHome.theme") private var themeId = VitaTheme.defaultId
+    @AppStorage("v3k.favorites") private var favoritesRaw = ""
     @State private var locked = true
     @State private var page = 0
     @State private var openApp: GameApp?
@@ -461,12 +462,30 @@ struct VitaHomeView: View {
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { openApp = nil }
     }
 
+    private var favoriteIds: Set<String> {
+        Set(favoritesRaw.split(separator: ",").map(String.init))
+    }
+
+    private func toggleFavorite(_ app: GameApp) {
+        var set = favoriteIds
+        if set.contains(app.titleId) { set.remove(app.titleId) } else { set.insert(app.titleId) }
+        favoritesRaw = set.sorted().joined(separator: ",")
+    }
+
     @ViewBuilder
     private func menu(_ item: VitaHomeItem) -> some View {
         if case .game(let app) = item {
             Button { onLaunch(app) } label: { Label("Start", systemImage: "play.fill") }
             Button { infoApp = app } label: { Label("Information", systemImage: "info.circle") }
             Button { onDetails(app) } label: { Label("Game settings, patches & saves", systemImage: "slider.horizontal.3") }
+            // the same favorites as the library (starred games come first on both)
+            Button { toggleFavorite(app) } label: {
+                if favoriteIds.contains(app.titleId) {
+                    Label("Remove from favorites", systemImage: "star.slash")
+                } else {
+                    Label("Add to favorites", systemImage: "star")
+                }
+            }
             Button(role: .destructive) { onDeleteSave(app) } label: { Label("Delete save data", systemImage: "externaldrive.badge.minus") }
             Button(role: .destructive) { onDelete(app) } label: { Label("Delete game", systemImage: "trash") }
         }
