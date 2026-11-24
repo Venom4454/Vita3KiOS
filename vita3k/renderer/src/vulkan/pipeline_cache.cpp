@@ -1422,6 +1422,11 @@ vk::Pipeline PipelineCache::retrieve_pipeline(VKContext &context, SceGxmPrimitiv
                 budget_frame = state.frame_timestamp;
                 budget_us = per_frame_us;
             }
+            // A burst of new shaders (a new area, or the first run after the shader cache was rebuilt):
+            // the workers are busy for a while anyway, so waiting only costs frames. Draw on and let
+            // those objects appear as they finish.
+            if (pipeline_compile_queue.size_approx() > 6)
+                budget_us = 0;
             if (budget_us > 0) {
                 const auto start = std::chrono::steady_clock::now();
                 const auto limit = start + std::chrono::microseconds(std::min(per_draw_us, budget_us));
