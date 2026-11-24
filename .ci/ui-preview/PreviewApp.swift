@@ -18,11 +18,25 @@ struct PreviewApp: App {
         defaults.set(scenario == "lock", forKey: "v3k.vitaHome.lockScreen")
         defaults.set(scenario.hasPrefix("theme:") ? "style." + scenario.dropFirst(6) : "default", forKey: "v3k.vitaHome.theme")
         apps = PreviewApp.makeApps(count: scenario == "many" ? 23 : 8)
+        if scenario.hasPrefix("n3ds") {
+            N3DSGameViewController.layoutPreview = true
+            defaults.set(true, forKey: "n3ds.layoutReset3")
+            defaults.set(true, forKey: "n3ds.sbsMigrated")
+            defaults.set("1", forKey: "n3ds.is_new_3ds")
+            if scenario.hasPrefix("n3ds:") { defaults.set(String(scenario.dropFirst(5)), forKey: "n3ds.screenLayout") }
+        }
     }
 
     var body: some Scene {
         WindowGroup {
-            if scenario == "brand" {
+            if scenario.hasPrefix("n3ds") {
+                // 3DS touch controls: "n3ds:<landscape layout>", "n3ds-portrait" (in a phone-sized frame)
+                N3DSPreviewHost(app: apps[0], portrait: scenario == "n3ds-portrait")
+                    .ignoresSafeArea()
+            } else if scenario == "vitapad" {
+                // PS Vita touch controls over a black game
+                VitaPadPreview().ignoresSafeArea()
+            } else if scenario == "brand" {
                 // The in-app Hinoki mark and lockup (Settings › About)
                 VStack(spacing: 40) {
                     HinokiMark().frame(width: 220, height: 220)
@@ -80,4 +94,39 @@ struct PreviewApp: App {
                            compat: i % 7, compatIssue: 0)
         }
     }
+}
+
+/// The 3DS game screen without a game: its controls laid out (portrait inside a phone-sized frame, the
+/// harness only runs landscape)
+struct N3DSPreviewHost: UIViewControllerRepresentable {
+    let app: GameApp
+    let portrait: Bool
+
+    func makeUIViewController(context: Context) -> UIViewController {
+        let game = N3DSGameViewController(app: app, jit: true, onEnd: {})
+        guard portrait else { return game }
+        let container = UIViewController()
+        container.view.backgroundColor = .darkGray
+        container.addChild(game)
+        let height = UIScreen.main.bounds.height
+        game.view.frame = CGRect(x: (UIScreen.main.bounds.width - height * 0.46) / 2, y: 0, width: height * 0.46, height: height)
+        container.view.addSubview(game.view)
+        game.didMove(toParent: container)
+        return container
+    }
+
+    func updateUIViewController(_ controller: UIViewController, context: Context) {}
+}
+
+struct VitaPadPreview: UIViewRepresentable {
+    func makeUIView(context: Context) -> UIView {
+        let host = UIView()
+        host.backgroundColor = .black
+        let pad = ControlsOverlayView(frame: UIScreen.main.bounds)
+        pad.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        host.addSubview(pad)
+        return host
+    }
+
+    func updateUIView(_ view: UIView, context: Context) {}
 }

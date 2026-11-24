@@ -56,7 +56,7 @@ xcrun simctl boot "$udid" 2> /dev/null || true
 xcrun simctl bootstatus "$udid" -b > /dev/null
 xcrun simctl install "$udid" "$app"
 
-for scenario in ${UI_PREVIEW_SCENARIOS:-home themechange lock many app:PCSA00100 app:PCSA00101 panel:themes panel:settings theme:meadow theme:sunset theme:aurora theme:sakura theme:crimson brand}; do
+for scenario in ${UI_PREVIEW_SCENARIOS:-home themechange lock many app:PCSA00100 app:PCSA00101 panel:themes panel:settings theme:meadow theme:sunset theme:aurora theme:sakura theme:crimson brand vitapad n3ds:hinoki n3ds:sbs n3ds:sbs-top n3ds-portrait}; do
     xcrun simctl terminate "$udid" org.vita3k.uipreview 2> /dev/null || true
     xcrun simctl launch "$udid" org.vita3k.uipreview -scenario "$scenario" > /dev/null
     sleep "${UI_PREVIEW_WAIT:-5}"

@@ -78,6 +78,7 @@ struct LibraryView: View {
     @AppStorage("v3k.favorites") private var favoritesRaw = ""
     @ObservedObject private var updater = Updater.shared
     @State private var signingWarning: String?
+    @State private var showingTrophies = false
     @AppStorage("v3k.vitaHome") private var vitaHome = false
 
     @State private var search = ""
@@ -214,6 +215,7 @@ struct LibraryView: View {
                             Label("Title", systemImage: "textformat").tag("title")
                             Label("Recently played", systemImage: "clock").tag("recent")
                         }
+                        Button { showingTrophies = true } label: { Label("Trophies", systemImage: "trophy.fill") }
                     } label: {
                         Image(systemName: "arrow.up.arrow.down.circle")
                     }
@@ -232,6 +234,13 @@ struct LibraryView: View {
                                     showingBuiltInPicker: $showingBuiltInPicker))
             .sheet(isPresented: $showingSettings) {
                 SettingsView().environmentObject(model)
+            }
+            .sheet(isPresented: $showingTrophies) {
+                NavigationStack {
+                    TrophiesView().toolbar {
+                        ToolbarItem(placement: .confirmationAction) { Button("Done") { showingTrophies = false } }
+                    }
+                }
             }
             .sheet(item: $gameDetails) { app in
                 if app.is3DS {

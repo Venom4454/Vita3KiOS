@@ -128,6 +128,10 @@ struct SettingsPage: Identifiable {
             },
         ]),
         Group(title: "PS Vita", pages: [
+            page("trophies", "Trophies", "What your games earned, game by game", "trophy.fill", .yellow,
+                 "trophies trophy platinum gold silver bronze achievements earned unlocked") {
+                TrophiesView()
+            },
             page("vita-emulation", "Emulation, graphics & audio", "Resolution, filters, CPU, shaders, system language, game audio", "cpu.fill", .indigo,
                  "resolution upscale filter fsr fxaa anisotropic shader cache async cpu fast thermal keep cool textures pvrtc v-sync vsync fps 60 language enter button circle cross pstv ps tv audio volume performance overlay hud") {
                 SettingsForm("Emulation, graphics & audio") { EmulationSections() }

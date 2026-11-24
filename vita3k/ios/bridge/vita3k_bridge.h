@@ -59,6 +59,10 @@ int v3k_firmware_state(void);
 char *v3k_apps_json(void);
 void v3k_refresh_apps(void);
 bool v3k_delete_app(const char *title_id);
+// Every game's trophies: [{"id","title","titleId","icon","total","unlocked","platinum","gold","silver","bronze",
+// "trophies":[{"id","name","detail","grade" (1 platinum .. 4 bronze),"hidden","earned","time" (Unix),"icon"}]}].
+// Free with v3k_free_string
+char *v3k_trophies_json(void);
 // A touch on the game's own front touchscreen: x and y are 0...1 across the game picture (Vita screen),
 // wherever the picture sits on the phone. phase: 0 down, 1 moved, 2 up, 3 cancelled (macro buttons)
 void v3k_touch_inject_game(int phase, unsigned long long finger, float x, float y);

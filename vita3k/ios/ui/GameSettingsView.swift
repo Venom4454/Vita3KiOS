@@ -132,6 +132,9 @@ struct GameSettingsView: View {
         NavigationStack {
             Form {
                 header
+                Section {
+                    GameTrophiesRow(titleId: app.titleId)
+                }
                 settingsSection
                 contentSection
                 patchesSection

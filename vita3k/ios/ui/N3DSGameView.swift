@@ -1525,8 +1525,11 @@ final class N3DSGameViewController: UIViewController {
 
     // MARK: Session
 
+    /// UI preview harness only (.ci/ui-preview): lay the controls out without starting a game
+    static var layoutPreview = false
+
     private func boot() {
-        guard !booted else { return }
+        guard !booted, !Self.layoutPreview else { return }
         booted = true
         startedAt = Date()
         N3DSSettings.sendAll()

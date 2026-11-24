@@ -41,6 +41,7 @@
 #include <miniz.h>
 #include <modules/module_parent.h>
 #include <net/relay.h>
+#include <np/trophy/collection.h>
 #include <packages/functions.h>
 #include <packages/license.h>
 #include <packages/pkg.h>
@@ -824,6 +825,51 @@ bool v3k_delete_app(const char *title_id) {
     app::delete_app(*emuenv, app->path);
     app::scan_apps(*emuenv);
     return true;
+}
+
+char *v3k_trophies_json(void) {
+    // Every game's trophies as Vita3K keeps them (ux0:user/<id>/trophy: conf from the game's TROPHY.TRP,
+    // progress in TROPUSR.DAT), with the installed game each list belongs to
+    auto *emuenv = ios::get_emuenv();
+    if (!emuenv)
+        return dup_string("[]");
+    np::trophy::CollectionSource source;
+    source.io = &emuenv->io;
+    source.vita_fs_path = emuenv->vita_fs_path;
+    source.user_id = emuenv->io.user_id.empty() ? std::string("00") : emuenv->io.user_id;
+    source.lang = static_cast<uint32_t>(emuenv->cfg.sys_lang);
+
+    // NP communication ID -> title ID, from the installed games' sce_sys/trophy folders
+    std::map<std::string, std::string> owner;
+    std::error_code ec;
+    const fs::path apps = emuenv->vita_fs_path / "ux0/app";
+    for (const auto &app : fs::directory_iterator(apps, ec)) {
+        const fs::path trophies = app.path() / "sce_sys/trophy";
+        for (const auto &entry : fs::directory_iterator(trophies, ec))
+            if (entry.is_directory(ec))
+                owner.emplace(entry.path().filename().string(), app.path().filename().string());
+    }
+
+    std::string out = "[";
+    std::lock_guard lock(install_mutex);
+    for (const auto &id : np::trophy::list_collection_ids(source)) {
+        np::trophy::CollectionSnapshot snapshot;
+        if (!np::trophy::load_collection(source, id, snapshot))
+            continue;
+        std::string trophies;
+        for (const auto &trophy : snapshot.trophies) {
+            trophies += fmt::format(R"({}{{"id":{},"name":"{}","detail":"{}","grade":{},"hidden":{},"earned":{},"time":{},"icon":"{}"}})",
+                trophies.empty() ? "" : ",", trophy.id, json_escape(trophy.name), json_escape(trophy.detail), trophy.grade,
+                trophy.hidden ? "true" : "false", trophy.earned ? "true" : "false", trophy.timestamp, json_escape(trophy.icon_path));
+        }
+        const auto title = owner.find(id);
+        out += fmt::format(R"({}{{"id":"{}","title":"{}","titleId":"{}","icon":"{}","total":{},"unlocked":{},"platinum":{},"gold":{},"silver":{},"bronze":{},"trophies":[{}]}})",
+            out.size() > 1 ? "," : "", json_escape(id), json_escape(snapshot.title), title != owner.end() ? json_escape(title->second) : std::string(),
+            json_escape(snapshot.icon_path), snapshot.total, snapshot.unlocked, snapshot.grade_unlocked[1], snapshot.grade_unlocked[2],
+            snapshot.grade_unlocked[3], snapshot.grade_unlocked[4], trophies);
+    }
+    out += "]";
+    return dup_string(out);
 }
 
 void v3k_touch_inject_game(int phase, unsigned long long finger, float x, float y) {
