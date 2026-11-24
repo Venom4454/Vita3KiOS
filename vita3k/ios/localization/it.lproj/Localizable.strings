@@ -622,3 +622,5 @@
 "Report a problem bundles the logs, the last crash report, your device and settings into one file to post on the Discord. Report on GitHub opens an issue with your device and the end of the log filled in, and saves that file in Files › Hinoki › Reports to attach. Say which game and what went wrong." = "Segnala un problema raccoglie i log, l'ultimo rapporto di crash, il dispositivo e le impostazioni in un file da pubblicare sul Discord. Segnala su GitHub apre una segnalazione con dispositivo e fine del log già compilati e salva quel file in File › Hinoki › Reports da allegare. Indica quale gioco e cosa è andato storto.";
 "What your games earned, game by game" = "Quello che hanno ottenuto i tuoi giochi, gioco per gioco";
 "No JIT: playing in the interpreter, so slower. Turn JIT on for full speed." = "Niente JIT: si gioca con l'interprete, quindi più lento. Attiva il JIT per la piena velocità.";
+"Play a game" = "Gioca a un gioco";
+"Opens Hinoki and starts the game." = "Apre Hinoki e avvia il gioco.";

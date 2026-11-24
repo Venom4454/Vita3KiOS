@@ -233,6 +233,7 @@ final class LibraryModel: ObservableObject {
            let decoded = try? JSONDecoder().decode([GameApp].self, from: data) {
             let sorted = decoded.sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
             if sorted != apps { apps = sorted }
+            HinokiGame.remember(sorted)
         }
         fetch3DSArt()
         // Cloud saves: once per app launch, both ways (newer saves from the user's other devices)

@@ -630,3 +630,5 @@
 "Report a problem bundles the logs, the last crash report, your device and settings into one file to post on the Discord. Report on GitHub opens an issue with your device and the end of the log filled in, and saves that file in Files › Hinoki › Reports to attach. Say which game and what went wrong." = "“报告问题”会把日志、最近一次崩溃报告、你的设备和设置打包成一个文件，方便发到 Discord。“在 GitHub 上报告”会打开一个已填好设备信息和日志末尾的 Issue，并把该文件保存到 文件 › Hinoki › Reports 以便附上。请说明是哪款游戏以及出了什么问题。";
 "What your games earned, game by game" = "你的游戏获得的奖杯，按游戏列出";
 "No JIT: playing in the interpreter, so slower. Turn JIT on for full speed." = "未开启 JIT：正在用解释器运行，所以较慢。开启 JIT 可全速运行。";
+"Play a game" = "玩游戏";
+"Opens Hinoki and starts the game." = "打开 Hinoki 并启动游戏。";

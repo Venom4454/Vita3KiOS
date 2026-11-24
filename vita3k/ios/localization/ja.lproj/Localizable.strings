@@ -629,3 +629,5 @@
 "Report a problem bundles the logs, the last crash report, your device and settings into one file to post on the Discord. Report on GitHub opens an issue with your device and the end of the log filled in, and saves that file in Files › Hinoki › Reports to attach. Say which game and what went wrong." = "「問題を報告」は、ログ、最後のクラッシュレポート、デバイスと設定を Discord に投稿できる1つのファイルにまとめます。「GitHub で報告」は、デバイス情報とログの末尾を入力済みにした Issue を開き、そのファイルを添付用に ファイル › Hinoki › Reports に保存します。どのゲームで何が起きたか書いてください。";
 "What your games earned, game by game" = "ゲームごとに獲得したもの";
 "No JIT: playing in the interpreter, so slower. Turn JIT on for full speed." = "JIT なし：インタープリターで動作中のため低速です。フルスピードにするには JIT をオンにしてください。";
+"Play a game" = "ゲームを遊ぶ";
+"Opens Hinoki and starts the game." = "Hinoki を開いてゲームを始めます。";

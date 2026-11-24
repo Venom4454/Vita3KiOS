@@ -152,6 +152,14 @@ enum LibraryHost {
     private static var hasShown = false
     private static var externalLaunch: String?
 
+    /// Siri and Shortcuts (GameIntents.swift): like a vita3k://launch/<ID> link
+    static func requestLaunch(_ titleId: String) {
+        externalLaunch = titleId
+        // Starting up, the library takes it when it first shows; a running game isn't interrupted
+        guard hasShown else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { takeLaunchRequest() }
+    }
+
     /// vita3k://launch/<ID> links and Home Screen quick actions
     static func takeLaunchRequest() {
         // Files opened with "Open in Vita3K" are installed once the library is showing
