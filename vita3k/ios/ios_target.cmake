@@ -25,6 +25,8 @@ set(VITA3K_IOS_SWIFT_SOURCES
 	ios/ui/GameCompression.swift
 	ios/ui/Updater.swift
 	ios/ui/TrophiesView.swift
+	ios/ui/SetupGuide.swift
+	ios/ui/GitHubReport.swift
 	ios/ui/MenuMusic.swift
 	ios/ui/GameSettingsView.swift
 	ios/ui/PerformanceHUD.swift

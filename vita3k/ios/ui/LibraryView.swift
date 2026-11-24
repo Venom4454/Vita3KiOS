@@ -79,6 +79,7 @@ struct LibraryView: View {
     @ObservedObject private var updater = Updater.shared
     @State private var signingWarning: String?
     @State private var showingTrophies = false
+    @State private var showingSetupGuide = false
     @AppStorage("v3k.vitaHome") private var vitaHome = false
 
     @State private var search = ""
@@ -235,6 +236,9 @@ struct LibraryView: View {
             .sheet(isPresented: $showingSettings) {
                 SettingsView().environmentObject(model)
             }
+            .fullScreenCover(isPresented: $showingSetupGuide) {
+                SetupGuideView().environmentObject(model)
+            }
             .sheet(isPresented: $showingTrophies) {
                 NavigationStack {
                     TrophiesView().toolbar {
@@ -270,6 +274,7 @@ struct LibraryView: View {
                 model.checkForCrashReport()
                 updater.checkIfDue()
                 SigningInfo.logOnce()
+                if SetupGuide.shouldShow(model: model) { showingSetupGuide = true }
                 if signingWarning == nil { signingWarning = SigningInfo.expiryWarning() }
                 LibraryHost.updateOrientation()
             }
@@ -277,6 +282,12 @@ struct LibraryView: View {
             .alert(model.jitPreparing ? "JIT is almost ready" : "JIT is not ready", isPresented: Binding(get: { pendingLaunch != nil }, set: { if !$0 { pendingLaunch = nil } })) {
                 if !model.jitPreparing {
                     EnableJITButtons()
+                    if let app = pendingLaunch, app.is3DS {
+                        Button("Play without JIT (slow)") {
+                            pendingLaunch = nil
+                            model.launch(app)
+                        }
+                    }
                 }
                 Button(model.jitPreparing ? "OK" : "Not now", role: .cancel) { pendingLaunch = nil }
             } message: {
@@ -311,7 +322,8 @@ struct LibraryView: View {
             model.launch(app)
         } else if model.jitCanRequest {
             model.setUpJIT { ready in
-                if ready {
+                if ready || app.is3DS {
+                    // 3DS without JIT: Azahar's interpreter (slow, but it plays)
                     model.launch(app)
                 } else {
                     pendingLaunch = app

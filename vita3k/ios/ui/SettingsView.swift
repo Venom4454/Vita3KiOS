@@ -1060,6 +1060,7 @@ struct CreditsSection: View {
 
 struct AboutSection: View {
     @EnvironmentObject var model: LibraryModel
+    @Environment(\.openURL) private var openURL
     @State private var report: URL?
 
     private var appVersion: String {
@@ -1106,10 +1107,17 @@ struct AboutSection: View {
             .sheet(item: Binding(get: { report.map(ShareItem.init) }, set: { if $0 == nil { report = nil } })) { item in
                 ShareSheet(items: [item.url])
             }
+            Button {
+                if let prepared = GitHubReport.prepare(appVersion: appVersion) {
+                    openURL(prepared.url)
+                }
+            } label: {
+                Label("Report on GitHub", systemImage: "arrow.up.forward.app")
+            }
             Link(destination: URL(string: "https://discord.gg/pZyQDPHKF")!) {
                 Label("Join the Discord", systemImage: "bubble.left.and.bubble.right")
             }
-            Text("Report a problem bundles the logs, the last crash report, your device and settings into one file to post on the Discord. Say which game and what went wrong.")
+            Text("Report a problem bundles the logs, the last crash report, your device and settings into one file to post on the Discord. Report on GitHub opens an issue with your device and the end of the log filled in, and saves that file in Files › Hinoki › Reports to attach. Say which game and what went wrong.")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
         }

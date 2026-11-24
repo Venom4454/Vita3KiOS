@@ -1049,6 +1049,7 @@ final class ControlsOverlayView: UIView {
             macro.lookRadius = unit * 1.3
         }
 
+        comfortNudge(unit: unit)
         applyPlacements(in: area)
         applyStickStyle(zones: stickZones(top: area.minY + unit))
 
@@ -1189,6 +1190,24 @@ final class ControlsOverlayView: UIView {
                 stick.frame = zone
                 stick.configure(style: .zones, stick: drawn)
             }
+        }
+    }
+
+    /// A little more comfortable in the hand: the sticks off the bottom edge (the thumb no longer curls
+    /// down into the corner) and the D-pad and face buttons a few points in from the sides (clear of the
+    /// rounded corners and case lips). Only controls the player hasn't moved: theirs stay exactly put.
+    private func comfortNudge(unit: CGFloat) {
+        let lift = unit * 0.22, inward = unit * 0.12
+        if placement(of: .leftStick) == GroupPlacement() { leftStick.frame = leftStick.frame.offsetBy(dx: inward, dy: -lift) }
+        if placement(of: .rightStick) == GroupPlacement() { rightStick.frame = rightStick.frame.offsetBy(dx: -inward, dy: -lift) }
+        let untouched: ([ControlGroup]) -> Bool = { groups in groups.allSatisfy { self.placement(of: $0) == GroupPlacement() } }
+        if untouched([.dpad, .dpadUp, .dpadDown, .dpadLeft, .dpadRight]) {
+            for view in [up, down, left, right] { view.frame = view.frame.offsetBy(dx: inward, dy: 0) }
+        }
+        if untouched([.face, .triangle, .circle, .cross, .square, .macro1, .macro2, .macro3, .macro4]) {
+            for view in [triangle, circle, cross, square] { view.frame = view.frame.offsetBy(dx: -inward, dy: 0) }
+            // the macro column beside them keeps its gap
+            for macro in macroButtons { macro.frame = macro.frame.offsetBy(dx: -inward, dy: 0) }
         }
     }
 

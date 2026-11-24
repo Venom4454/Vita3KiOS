@@ -112,6 +112,21 @@ enum N3DSSettings {
     }
 
     static var controlsOpacity: Double { double("n3ds.controlsOpacity", 0.9) }
+
+    /// "comfort" (the controls placed along the thumbs' reach, off the edges) or "classic" (the layout
+    /// before it). Anyone who had already moved controls keeps classic, so nothing of theirs shifts;
+    /// everyone else starts on comfort. Each style keeps its own moves.
+    static var controlStyle: String {
+        get {
+            let defaults = UserDefaults.standard
+            if let chosen = defaults.string(forKey: "n3ds.controlStyle") { return chosen }
+            let customized = defaults.dictionaryRepresentation().keys.contains { $0.hasPrefix("n3ds.controls.") }
+            let style = customized ? "classic" : "comfort"
+            defaults.set(style, forKey: "n3ds.controlStyle")
+            return style
+        }
+        set { UserDefaults.standard.set(newValue, forKey: "n3ds.controlStyle") }
+    }
     static var controlsScale: Double { double("n3ds.controlsScale", 1.0) }
     static var hideControlsWithController: Bool { bool("n3ds.hideWithController", true) }
     static var haptics: Bool { bool("n3ds.haptics", true) }
@@ -983,7 +998,9 @@ final class N3DSGameViewController: UIViewController {
         var circleFrame = CGRect.zero
         miniScreenButton.isHidden = true
 
-        if isPortrait {
+        if comfortStyle {
+            circleFrame = layoutComfort(plan: plan, u: u, newMode: newMode)
+        } else if isPortrait {
             let left = safe.left + 14 * u, right = bounds.width - safe.right - 14 * u
             let bottom = bounds.height - max(safe.bottom, 10) - 6 * u
             let top = gameView.frame.maxY + 8 * u
@@ -1111,6 +1128,167 @@ final class N3DSGameViewController: UIViewController {
         if withIcons { layoutIconRow(center: center) }
     }
 
+    // MARK: Comfort layout
+
+    /// The comfort style. A thumb pivots from the phone's lower corner, so its tip sweeps an arc: it
+    /// rests about a third of the way up, reaches up-and-out easily and down-and-in easily, and has to
+    /// curl to reach the very bottom edge or stretch to the top corner. So on each side the control used
+    /// most (Circle Pad, A B X Y) sits where the thumb rests, the other one (D-pad, C-stick) up and out
+    /// from it along the arc, nothing hugs the edges, and the shoulder buttons are bigger targets.
+    /// Returns where the Circle Pad goes.
+    private func layoutComfort(plan: ScreenPlan?, u: CGFloat, newMode: Bool) -> CGRect {
+        let bounds = view.bounds, safe = view.safeAreaInsets
+        if isPortrait {
+            let left = safe.left + 16 * u, right = bounds.width - safe.right - 16 * u
+            let top = gameView.frame.maxY + 8 * u
+            let shoulderW = 72 * u, shoulderH = 38 * u
+            placeShoulders(left: left, right: right, top: top, width: shoulderW, height: shoulderH)
+            layoutIconRow(center: CGPoint(x: bounds.midX, y: top + shoulderH / 2))
+
+            let bottom = bounds.height - max(safe.bottom, 12) - 8 * u
+            let areaTop = top + shoulderH + 10 * u
+            let space = max(bottom - areaTop, 120)
+            let half = (right - left) / 2
+            // the thumb rests a bit over a third of the way up
+            let stick = min(128 * u, space * 0.46, half * 0.78)
+            let circleCenter = CGPoint(x: left + half * 0.52, y: min(bottom - space * 0.36, bottom - stick / 2))
+            let circleFrame = CGRect(x: circleCenter.x - stick / 2, y: circleCenter.y - stick / 2, width: stick, height: stick)
+            let dpadSize = max(min(112 * u, circleFrame.minY - 8 * u - areaTop, half * 0.7), 64)
+            dpad.frame = CGRect(x: max(left, circleFrame.minX - dpadSize * 0.32), y: max(areaTop, circleFrame.minY - 8 * u - dpadSize),
+                                width: dpadSize, height: dpadSize)
+
+            let face = min(58 * u, half * 0.84 / 3.2, space / 4.4)
+            let faceCenter = CGPoint(x: right - half * 0.52, y: circleCenter.y)
+            layoutFace(center: faceCenter, size: face, spacing: 1.12)
+            let faceTop = faceCenter.y - face * 1.62
+            let cSize = newMode ? max(min(56 * u, faceTop - 8 * u - areaTop), 0) : 0
+            cstick.frame = CGRect(x: min(right - cSize, faceCenter.x + face * 0.6), y: max(areaTop, faceTop - 8 * u - cSize), width: cSize, height: cSize)
+
+            // SELECT HOME START up between the D-pad and the C-stick: out of the thumbs' way
+            let small = 28 * u
+            let rightLimit = newMode ? min(cstick.frame.minX, faceCenter.x - face * 1.62) : faceCenter.x - face * 1.62
+            let pillW = max(min(56 * u, (rightLimit - dpad.frame.maxX - 24) / 3), 40)
+            let rowWidth = pillW * 3 + 12
+            let rowX = min(max((dpad.frame.maxX + rightLimit) / 2, bounds.midX - 30), bounds.midX + 30) - rowWidth / 2
+            let rowY = areaTop
+            place(.select, CGRect(x: rowX, y: rowY, width: pillW, height: small))
+            place(.home, CGRect(x: rowX + pillW + 6, y: rowY, width: pillW, height: small))
+            place(.start, CGRect(x: rowX + rowWidth - pillW, y: rowY, width: pillW, height: small))
+            return circleFrame
+        }
+
+        if let strip = plan?.strip {
+            return layoutComfortBand(strip, plan: plan, u: u, newMode: newMode)
+        }
+
+        // two columns: beside the screens (Hinoki's layout) or over their edges (the overlay layouts)
+        let gutter = plan?.gutter ?? min(max(bounds.width * 0.2, 130), 230) * CGFloat(min(max(N3DSSettings.controlsScale, 0.8), 1.25))
+        let leftX = max(safe.left * 0.45, 10) + 6 * u, rightEdge = bounds.width - max(safe.right * 0.45, 10) - 6 * u
+        let column = gutter - leftX - 4
+        let top = max(safe.top, 6)
+        let bottom = bounds.height - max(safe.bottom, 8) - 10 * u
+        let shoulderH = 40 * u
+        placeShoulders(left: leftX, right: rightEdge, top: top, width: newMode ? column * 0.56 : column, height: shoulderH, columnWidth: column)
+        let restY = bottom - (bottom - top) * 0.3
+
+        // left: the Circle Pad where the thumb rests, a little in from the edge; the D-pad up and out
+        let leftTop = top + shoulderH + 10 * u
+        let stick = min(column * 0.94, 126 * u, (bottom - leftTop) * 0.5)
+        let circleCenter = CGPoint(x: leftX + column * 0.5 + min(column * 0.06, (column - stick) / 2),
+                                   y: min(max(restY, leftTop + stick / 2 + 70 * u), bottom - stick / 2))
+        let circleFrame = CGRect(x: circleCenter.x - stick / 2, y: circleCenter.y - stick / 2, width: stick, height: stick)
+        let dpadSize = max(min(column * 0.88, 112 * u, circleFrame.minY - 8 * u - leftTop), 64)
+        dpad.frame = CGRect(x: max(leftX - 4, circleCenter.x - dpadSize / 2 - column * 0.1), y: max(leftTop, circleFrame.minY - 8 * u - dpadSize),
+                            width: dpadSize, height: dpadSize)
+
+        // right: (the small screen,) A B X Y where the thumb rests, the C-stick up and in from them
+        var rightTop = top + shoulderH + 10 * u
+        if let mini = plan?.mini {
+            miniScreenButton.isHidden = false
+            miniScreenButton.frame = mini
+            miniScreenButton.viewWithTag(1)?.frame = CGRect(x: mini.width - 20, y: 2, width: 18, height: 18)
+            rightTop = mini.maxY + 8
+        }
+        let face = min(column / 3.2, 56 * u, (bottom - rightTop) / 3.6)
+        let reach = face * 1.6
+        let cWanted = newMode ? min(50 * u, column * 0.4) : 0
+        // as close to the resting height as the C-stick above them allows
+        let lowest = bottom - reach
+        let highest = rightTop + (newMode ? cWanted + 8 * u : 0) + reach
+        let faceCenter = CGPoint(x: rightEdge - column / 2, y: min(max(restY, highest), lowest))
+        layoutFace(center: faceCenter, size: face, spacing: 1.1)
+        let faceTop = faceCenter.y - reach
+        var cSize = newMode ? max(min(cWanted, faceTop - 8 * u - rightTop), 0) : 0
+        cstick.frame = CGRect(x: rightEdge - column, y: faceTop - 8 * u - cSize, width: cSize, height: cSize)
+        if newMode && cSize < 34 {
+            // no room above the buttons (under a tall small screen): just inside them instead
+            cSize = 40 * u
+            cstick.frame = CGRect(x: rightEdge - column - cSize * 0.5, y: faceTop - cSize * 0.4, width: cSize, height: cSize)
+        }
+
+        // SELECT HOME [menu » ⇅] START across the top, between the shoulder buttons
+        var rowY = top + 15
+        if let plan {
+            let centralTop = plan.mini == nil ? min(plan.top.minY, plan.bottom.minY) : (bottomScreenBig ? plan.bottom.minY : plan.top.minY)
+            if centralTop > 30 { rowY = centralTop / 2 }
+        }
+        placeSystemRow(center: CGPoint(x: bounds.midX, y: max(rowY, 15)), pillW: 60 * u, height: 26 * u, withIcons: true)
+        return circleFrame
+    }
+
+    /// Comfort in the side-by-side band: on each side the main control in from the edge and a little
+    /// lower, the other one beside it towards the middle and a little higher (along the thumb's arc)
+    private func layoutComfortBand(_ band: CGRect, plan: ScreenPlan?, u: CGFloat, newMode: Bool) -> CGRect {
+        let safe = view.safeAreaInsets
+        let left = band.minX + max(safe.left * 0.45, 10) + 8 * u, right = band.maxX - max(safe.right * 0.45, 10) - 8 * u
+        let height = band.height
+        let gap = 14 * u
+        var dpadSize = min(height * 0.84, 108 * u), stick = min(height * 0.9, 124 * u)
+        var face = min(height / 3.3, 52 * u)
+        var cSize = newMode ? min(height * 0.42, 50 * u) : 0
+        let pillW = 58 * u, small = 26 * u
+        let middle = pillW * 3 + 12
+        let needed = dpadSize + stick + face * 3.3 + cSize + middle + gap * 6
+        let fit = min(1, (right - left) / needed)
+        if fit < 1 {
+            dpadSize *= fit
+            stick *= fit
+            face *= fit
+            cSize *= fit
+        }
+        // the slope along the arc: what the band's height leaves
+        let slope = min(max(height - stick, 0) / 2, 14 * u)
+        let midY = band.midY
+
+        let screens = plan.map { $0.top.union($0.bottom) } ?? .zero
+        let margin = screens.minX - left
+        let top = max(safe.top, 6)
+        if margin >= 50 {
+            let w = min(margin - 6, 74 * u), h = min(44 * u, (screens.height - 12) / 2)
+            place(.l, CGRect(x: left, y: top, width: w, height: h))
+            place(.zl, CGRect(x: left, y: top + h + 6, width: w, height: h))
+            place(.r, CGRect(x: right - w, y: top, width: w, height: h))
+            place(.zr, CGRect(x: right - w, y: top + h + 6, width: w, height: h))
+        } else {
+            placeShoulders(left: left, right: right, top: top, width: 68 * u, height: 36 * u)
+        }
+
+        let circleFrame = CGRect(x: left, y: midY - stick / 2 + slope, width: stick, height: stick)
+        dpad.frame = CGRect(x: circleFrame.maxX + gap, y: midY - dpadSize / 2 - slope, width: dpadSize, height: dpadSize)
+
+        let faceCenter = CGPoint(x: right - face * 1.62, y: midY + slope)
+        layoutFace(center: faceCenter, size: face, spacing: 1.12)
+        cstick.frame = CGRect(x: faceCenter.x - face * 1.62 - gap - cSize, y: midY - cSize / 2 - slope, width: cSize, height: cSize)
+
+        let centreX = (dpad.frame.maxX + (newMode ? cstick.frame.minX : faceCenter.x - face * 1.62)) / 2
+        let rowY = band.maxY - small
+        place(.select, CGRect(x: centreX - pillW * 1.5 - 6, y: rowY, width: pillW, height: small))
+        place(.home, CGRect(x: centreX - pillW / 2, y: rowY, width: pillW, height: small))
+        place(.start, CGRect(x: centreX + pillW / 2 + 6, y: rowY, width: pillW, height: small))
+        layoutIconRow(center: CGPoint(x: centreX, y: max(band.minY + 15, rowY - 26)))
+        return circleFrame
+    }
+
     /// Side-by-side layouts: the controls in a band along the bottom, left to right
     /// [Circle Pad] [D-pad]   [SELECT HOME START, icons above]   [C-stick] [A B X Y], the shoulder
     /// buttons in the margins beside the screens (or in the top corners when there's no margin).
@@ -1187,7 +1365,11 @@ final class N3DSGameViewController: UIViewController {
     private var placementsLoadedFor = ""
     private var editor: N3DSControlEditor?
 
-    private var placementsKey: String { "n3ds.controls." + (isPortrait ? "portrait" : N3DSSettings.landscapeLayout) }
+    private var placementsKey: String {
+        "n3ds.controls." + (comfortStyle ? "comfort." : "") + (isPortrait ? "portrait" : N3DSSettings.landscapeLayout)
+    }
+
+    private var comfortStyle: Bool { N3DSSettings.controlStyle == "comfort" }
 
     private func loadPlacementsIfNeeded() {
         guard placementsLoadedFor != placementsKey else { return }
@@ -1337,10 +1519,10 @@ final class N3DSGameViewController: UIViewController {
         present(sheet: sheet)
     }
 
-    private func layoutFace(center: CGPoint, size face: CGFloat) {
+    private func layoutFace(center: CGPoint, size face: CGFloat, spacing: CGFloat = 1.05) {
         let offsets: [(N3DSKey, CGFloat, CGFloat)] = [(.x, 0, -1), (.a, 1, 0), (.b, 0, 1), (.y, -1, 0)]
         for (key, dx, dy) in offsets {
-            place(key, CGRect(x: center.x + dx * face * 1.05 - face / 2, y: center.y + dy * face * 1.05 - face / 2, width: face, height: face))
+            place(key, CGRect(x: center.x + dx * face * spacing - face / 2, y: center.y + dy * face * spacing - face / 2, width: face, height: face))
         }
     }
 
@@ -1359,10 +1541,8 @@ final class N3DSGameViewController: UIViewController {
         let hidden = controllerConnected && N3DSSettings.hideControlsWithController
         setControlsHidden(hidden)
         overlay.alpha = CGFloat(N3DSSettings.controlsOpacity)
-        let newMode = N3DSSettings.value("is_new_3ds") == "1"
-        cstick.isHidden = !newMode
-        button(.zl)?.isHidden = !newMode
-        button(.zr)?.isHidden = !newMode
+        // (ZL, ZR and the C-stick: setControlsHidden shows them only on a New 3DS, and keeps them hidden
+        // with the rest while a controller is in use)
     }
 
     /// The controls hidden (the small screen stays: it swaps the screens)
@@ -1425,6 +1605,8 @@ final class N3DSGameViewController: UIViewController {
         return (mask, left, right)
     }
 
+    private var perfTicks = 0
+
     @objc private func tick() {
         let (padMask, padLeft, padRight) = controllerState()
         v3k_n3ds_set_buttons(touchMask | dpadMask | padMask)
@@ -1433,7 +1615,9 @@ final class N3DSGameViewController: UIViewController {
         let c = abs(padRight.x) + abs(padRight.y) > 0.05 ? padRight : cStickTouch
         v3k_n3ds_set_stick(1, Float(c.x), Float(c.y))
 
-        if !fpsLabel.isHidden {
+        // the counter: four times a second is plenty (formatting it every frame cost for nothing)
+        perfTicks &+= 1
+        if !fpsLabel.isHidden && perfTicks % 15 == 0 {
             var fps = 0.0, speed = 0.0
             v3k_n3ds_perf(&fps, &speed)
             fpsLabel.text = String(format: "%.0f FPS · %.0f%%", fps, speed) + (fastForward ? " · »" : "") + (cooledDown ? " · cooling" : "")
@@ -1535,6 +1719,8 @@ final class N3DSGameViewController: UIViewController {
         N3DSSettings.sendAll()
         // no JIT: the interpreter (slow, but it runs)
         v3k_n3ds_set_setting("use_cpu_jit", jit && N3DSSettings.value("use_cpu_jit") == "1" ? "1" : "0")
+        // The shader JIT writes code too: the shader interpreter without JIT
+        v3k_n3ds_set_setting("use_shader_jit", jit && N3DSSettings.value("use_shader_jit") == "1" ? "1" : "0")
         lastLayoutSent = ""
         view.setNeedsLayout()
         view.layoutIfNeeded()
@@ -1584,6 +1770,11 @@ final class N3DSGameViewController: UIViewController {
                 self.loadingSpinner.alpha = 0
             }
             applyThermalState()
+            if !jit {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in
+                    self?.showToast(L("No JIT: playing in the interpreter, so slower. Turn JIT on for full speed."))
+                }
+            }
         case 3:
             if let text, !errorShown {
                 errorShown = true

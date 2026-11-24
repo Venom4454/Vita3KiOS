@@ -32,7 +32,7 @@ cat > "$app/Info.plist" <<PLIST
 <key>UILaunchScreen</key><dict/>
 <key>UIRequiresFullScreen</key><true/>
 <key>UIStatusBarHidden</key><true/>
-<key>UISupportedInterfaceOrientations</key><array><string>UIInterfaceOrientationLandscapeRight</string></array>
+<key>UISupportedInterfaceOrientations</key><array><string>UIInterfaceOrientationLandscapeRight</string><string>UIInterfaceOrientationPortrait</string></array>
 <key>UIDeviceFamily</key><array><integer>1</integer></array>
 </dict></plist>
 PLIST
@@ -56,11 +56,16 @@ xcrun simctl boot "$udid" 2> /dev/null || true
 xcrun simctl bootstatus "$udid" -b > /dev/null
 xcrun simctl install "$udid" "$app"
 
-for scenario in ${UI_PREVIEW_SCENARIOS:-home themechange lock many app:PCSA00100 app:PCSA00101 panel:themes panel:settings theme:meadow theme:sunset theme:aurora theme:sakura theme:crimson brand vitapad n3ds:hinoki n3ds:sbs n3ds:sbs-top n3ds-portrait}; do
+for scenario in ${UI_PREVIEW_SCENARIOS:-home themechange lock many app:PCSA00100 app:PCSA00101 panel:themes panel:settings theme:meadow theme:sunset theme:aurora theme:sakura theme:crimson brand vitapad n3ds:hinoki n3ds:sbs n3ds:sbs-top n3ds-portrait n3ds:hinoki+classic n3ds-portrait+classic setup setup:3}; do
     xcrun simctl terminate "$udid" org.vita3k.uipreview 2> /dev/null || true
     xcrun simctl launch "$udid" org.vita3k.uipreview -scenario "$scenario" > /dev/null
     sleep "${UI_PREVIEW_WAIT:-5}"
     file="$out/$(echo "$scenario" | tr ':' '-').png"
     xcrun simctl io "$udid" screenshot "$file" > /dev/null
+    # the simulator saves the device's portrait buffer: turn the landscape ones upright
+    case "$scenario" in
+        n3ds-portrait*|setup*) ;;
+        *) sips -r 270 "$file" > /dev/null ;;
+    esac
     echo "Screenshot $file"
 done

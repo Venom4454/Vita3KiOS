@@ -29,6 +29,7 @@ struct N3DSSettingsView: View {
     @AppStorage("n3ds.controlsScale") private var controlsScale = 1.0
     @AppStorage("n3ds.touchReach") private var touchReach = "near"
     @AppStorage("n3ds.floatingStick") private var floatingStick = true
+    @State private var controlStyle = N3DSSettings.controlStyle
     @AppStorage("n3ds.coolDown") private var coolDown = true
     @AppStorage("n3ds.ffSpeed") private var fastForwardSpeed = "200"
     @State private var landscapeLayout = N3DSSettings.landscapeLayout
@@ -198,6 +199,11 @@ struct N3DSSettingsView: View {
                     Text("Touch controls size: \(Int(controlsScale * 100))%")
                     Slider(value: $controlsScale, in: 0.8...1.3, step: 0.05)
                 }
+                Picker("Control layout", selection: $controlStyle) {
+                    Text("Comfort").tag("comfort")
+                    Text("Classic").tag("classic")
+                }
+                .onChange(of: controlStyle) { _, style in N3DSSettings.controlStyle = style }
                 Picker("Button touch area", selection: $touchReach) {
                     Text("On the button").tag("exact")
                     Text("Near the button").tag("near")
@@ -210,7 +216,7 @@ struct N3DSSettingsView: View {
             } header: {
                 Text("Controls")
             } footer: {
-                Text("Touch the bottom screen directly. Near the button: a tap just beside a button still presses it. Floating Circle Pad: it starts where your thumb lands near it. Controllers: A, B, X and Y by position, triggers are ZL/ZR, the right stick click is fast forward, the guide button opens the menu.")
+                Text("Comfort places the controls along your thumbs' reach, off the screen edges; Classic is the earlier layout. Each keeps its own moved controls. Touch the bottom screen directly. Near the button: a tap just beside a button still presses it. Floating Circle Pad: it starts where your thumb lands near it. Controllers: A, B, X and Y by position, triggers are ZL/ZR, the right stick click is fast forward, the guide button opens the menu.")
             }
         }
         .navigationTitle("Nintendo 3DS")

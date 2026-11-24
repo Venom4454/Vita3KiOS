@@ -18,21 +18,43 @@ struct PreviewApp: App {
         defaults.set(scenario == "lock", forKey: "v3k.vitaHome.lockScreen")
         defaults.set(scenario.hasPrefix("theme:") ? "style." + scenario.dropFirst(6) : "default", forKey: "v3k.vitaHome.theme")
         apps = PreviewApp.makeApps(count: scenario == "many" ? 23 : 8)
+        // the simulator says a controller is connected: keep the touch controls on screen
+        defaults.set(false, forKey: "n3ds.hideWithController")
+        defaults.set(false, forKey: "v3k.touchHideWithController")
         if scenario.hasPrefix("n3ds") {
             N3DSGameViewController.layoutPreview = true
             defaults.set(true, forKey: "n3ds.layoutReset3")
             defaults.set(true, forKey: "n3ds.sbsMigrated")
             defaults.set("1", forKey: "n3ds.is_new_3ds")
-            if scenario.hasPrefix("n3ds:") { defaults.set(String(scenario.dropFirst(5)), forKey: "n3ds.screenLayout") }
+            // "+classic" on the end: the classic control style (comfort otherwise)
+            let parts = scenario.split(separator: "+")
+            defaults.set(parts.count > 1 ? String(parts[1]) : "comfort", forKey: "n3ds.controlStyle")
+            if scenario.hasPrefix("n3ds:") { defaults.set(String(parts[0].dropFirst(5)), forKey: "n3ds.screenLayout") }
         }
     }
 
+    /// Upright scenarios turn the simulator's window to portrait (the rest stay landscape)
+    private var portrait: Bool { scenario.hasPrefix("n3ds-portrait") || scenario.hasPrefix("setup") }
+
     var body: some Scene {
         WindowGroup {
+            content
+                .onAppear {
+                    guard let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene else { return }
+                    scene.requestGeometryUpdate(.iOS(interfaceOrientations: portrait ? .portrait : .landscapeRight)) { _ in }
+                }
+        }
+    }
+
+    @ViewBuilder
+    private var content: some View {
             if scenario.hasPrefix("n3ds") {
                 // 3DS touch controls: "n3ds:<landscape layout>", "n3ds-portrait" (in a phone-sized frame)
-                N3DSPreviewHost(app: apps[0], portrait: scenario == "n3ds-portrait")
+                N3DSPreviewHost(app: apps[0], portrait: scenario.hasPrefix("n3ds-portrait"))
                     .ignoresSafeArea()
+            } else if scenario.hasPrefix("setup") {
+                // The first-run setup guide ("setup:<step>")
+                SetupGuideView(startAt: Int(scenario.split(separator: ":").last ?? "") ?? 0).environmentObject(model)
             } else if scenario == "vitapad" {
                 // PS Vita touch controls over a black game
                 VitaPadPreview().ignoresSafeArea()
@@ -62,7 +84,6 @@ struct PreviewApp: App {
                     }
                 }
             }
-        }
     }
 
     static func makeApps(count: Int) -> [GameApp] {
@@ -103,16 +124,8 @@ struct N3DSPreviewHost: UIViewControllerRepresentable {
     let portrait: Bool
 
     func makeUIViewController(context: Context) -> UIViewController {
-        let game = N3DSGameViewController(app: app, jit: true, onEnd: {})
-        guard portrait else { return game }
-        let container = UIViewController()
-        container.view.backgroundColor = .darkGray
-        container.addChild(game)
-        let height = UIScreen.main.bounds.height
-        game.view.frame = CGRect(x: (UIScreen.main.bounds.width - height * 0.46) / 2, y: 0, width: height * 0.46, height: height)
-        container.view.addSubview(game.view)
-        game.didMove(toParent: container)
-        return container
+        // the window itself turns upright for the portrait scenario
+        N3DSGameViewController(app: app, jit: true, onEnd: {})
     }
 
     func updateUIViewController(_ controller: UIViewController, context: Context) {}
