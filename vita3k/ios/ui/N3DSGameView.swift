@@ -1141,7 +1141,8 @@ final class N3DSGameViewController: UIViewController {
         if isPortrait {
             let left = safe.left + 16 * u, right = bounds.width - safe.right - 16 * u
             let top = gameView.frame.maxY + 8 * u
-            let shoulderW = 72 * u, shoulderH = 38 * u
+            // narrow enough to leave the icon buttons the middle of the row
+            let shoulderW = 60 * u, shoulderH = 38 * u
             placeShoulders(left: left, right: right, top: top, width: shoulderW, height: shoulderH)
             layoutIconRow(center: CGPoint(x: bounds.midX, y: top + shoulderH / 2))
 

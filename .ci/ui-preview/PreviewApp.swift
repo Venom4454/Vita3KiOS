@@ -40,8 +40,14 @@ struct PreviewApp: App {
         WindowGroup {
             content
                 .onAppear {
-                    guard let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene else { return }
-                    scene.requestGeometryUpdate(.iOS(interfaceOrientations: portrait ? .portrait : .landscapeRight)) { _ in }
+                    // after the 3DS screen's own request on appearing (any orientation), which would undo it
+                    let mask: UIInterfaceOrientationMask = portrait ? .portrait : .landscapeRight
+                    for delay in [0.0, 1.0] {
+                        DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+                            guard let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene else { return }
+                            scene.requestGeometryUpdate(.iOS(interfaceOrientations: mask)) { _ in }
+                        }
+                    }
                 }
         }
     }
@@ -132,12 +138,19 @@ struct N3DSPreviewHost: UIViewControllerRepresentable {
 }
 
 struct VitaPadPreview: UIViewRepresentable {
+    /// Keeps the pad the size of the window as it turns to landscape
+    final class Host: UIView {
+        let pad = ControlsOverlayView(frame: .zero)
+        override func layoutSubviews() {
+            super.layoutSubviews()
+            if pad.superview == nil { addSubview(pad) }
+            pad.frame = bounds
+        }
+    }
+
     func makeUIView(context: Context) -> UIView {
-        let host = UIView()
+        let host = Host()
         host.backgroundColor = .black
-        let pad = ControlsOverlayView(frame: UIScreen.main.bounds)
-        pad.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-        host.addSubview(pad)
         return host
     }
 
