@@ -30,6 +30,8 @@ final class GameQuickMenuView: UIView {
     private let grid = UIStackView()
     private let resumeButton = UIButton(type: .system)
     private let onClose: () -> Void
+    private var tiles: [UIButton] = []
+    private var columns = 0
     private var closing = false
 
     /// paused: the player had paused the game; "Resume game" then runs `resume`
@@ -90,21 +92,7 @@ final class GameQuickMenuView: UIView {
         grid.axis = .vertical
         grid.spacing = 10
         grid.distribution = .fillEqually
-        var row: UIStackView?
-        for (index, item) in items.enumerated() {
-            if index % 4 == 0 {
-                let next = UIStackView()
-                next.spacing = 10
-                next.distribution = .fillEqually
-                grid.addArrangedSubview(next)
-                row = next
-            }
-            row?.addArrangedSubview(tile(item))
-        }
-        // keep the last row's tiles the same width as the others
-        if let row, items.count % 4 != 0 {
-            for _ in 0..<(4 - items.count % 4) { row.addArrangedSubview(UIView()) }
-        }
+        tiles = items.map(tile)
         card.contentView.addSubview(grid)
 
         var config = UIButton.Configuration.filled()
@@ -150,21 +138,56 @@ final class GameQuickMenuView: UIView {
         return button
     }
 
+    /// Lays the tiles out `count` to a row (the last row padded so every tile keeps the same width)
+    private func arrange(columns count: Int) {
+        guard count != columns else { return }
+        columns = count
+        grid.arrangedSubviews.forEach { $0.removeFromSuperview() }
+        var row: UIStackView?
+        for (index, tile) in tiles.enumerated() {
+            if index % count == 0 {
+                let next = UIStackView()
+                next.spacing = 10
+                next.distribution = .fillEqually
+                grid.addArrangedSubview(next)
+                row = next
+            }
+            row?.addArrangedSubview(tile)
+        }
+        if let row, tiles.count % count != 0 {
+            for _ in 0..<(count - tiles.count % count) { row.addArrangedSubview(UIView()) }
+        }
+    }
+
     override func layoutSubviews() {
         super.layoutSubviews()
         backdrop.frame = bounds
         let safe = bounds.inset(by: safeAreaInsets).insetBy(dx: 16, dy: 12)
-        let width = min(safe.width, 540)
-        let padding: CGFloat = 20
+        // Landscape on a phone is short: tiles six to a row and "Back to game" up in the header, so the
+        // whole card fits without scrolling (eleven 3DS tiles in two rows)
+        let wide = safe.width > safe.height && safe.height < 500
+        arrange(columns: wide ? 6 : 4)
+        let width = min(safe.width, wide ? 640 : 540)
+        let padding: CGFloat = wide ? 16 : 20
         let rows = CGFloat(grid.arrangedSubviews.count)
-        let tileHeight: CGFloat = min(84, max((safe.height - 44 - 52 - padding * 2 - 36 - rows * 10) / max(rows, 1), 60))
+        let footer: CGFloat = wide ? 0 : 16 + 48
+        let available = safe.height - padding * 2 - 44 - 14 - footer - max(rows - 1, 0) * 10
+        let tileHeight = min(84, max(available / max(rows, 1), 58))
         let gridHeight = rows * tileHeight + max(rows - 1, 0) * 10
-        let height = padding + 44 + 16 + gridHeight + 16 + 48 + padding
+        let height = padding + 44 + 14 + gridHeight + footer + padding
         card.frame = CGRect(x: safe.midX - width / 2, y: safe.midY - height / 2, width: width, height: height)
         let inner = card.bounds.insetBy(dx: padding, dy: padding)
-        header.frame = CGRect(x: inner.minX, y: inner.minY, width: inner.width, height: 44)
-        grid.frame = CGRect(x: inner.minX, y: header.frame.maxY + 16, width: inner.width, height: gridHeight)
-        resumeButton.frame = CGRect(x: inner.minX, y: grid.frame.maxY + 16, width: inner.width, height: 48)
+        if wide {
+            let buttonWidth = min(180, inner.width * 0.36)
+            header.frame = CGRect(x: inner.minX, y: inner.minY, width: inner.width - buttonWidth - 12, height: 44)
+            resumeButton.frame = CGRect(x: inner.maxX - buttonWidth, y: inner.minY + 2, width: buttonWidth, height: 40)
+        } else {
+            header.frame = CGRect(x: inner.minX, y: inner.minY, width: inner.width, height: 44)
+        }
+        grid.frame = CGRect(x: inner.minX, y: header.frame.maxY + 14, width: inner.width, height: gridHeight)
+        if !wide {
+            resumeButton.frame = CGRect(x: inner.minX, y: grid.frame.maxY + 16, width: inner.width, height: 48)
+        }
     }
 
     func present(in host: UIView) {
