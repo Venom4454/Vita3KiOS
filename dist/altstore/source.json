@@ -12,6 +12,15 @@
       "bundleIdentifier": "org.vita3k.ios",
       "versions": [
         {
+          "version": "1.6.2",
+          "buildVersion": "304",
+          "date": "2026-11-25T14:07:10Z",
+          "localizedDescription": "New\n- Controls laid out like a PS Vita: HOME bottom left (where the PS button is), SELECT and START bottom right, nothing across the top of the game\n- HOME opens a new quick menu on both PS Vita and 3DS: pause, screenshot, rear touchpad, show or hide controls, edit layout, performance overlay and quit; on 3DS also save states, fast forward, swap screens, screen layout and the 3DS HOME button. A controller's Home/PS button opens it too\n- Trophies: every game's trophies in a Trophies bubble on the home screen (next to Content Manager), on each game's page and in the library menu, with a \"You have earned a trophy\" banner in game\n- 3DS: a new Comfort control layout (Settings › 3DS › Control layout) and a lighter look for every control; anyone who had moved controls keeps Classic\n- 3DS games start without JIT too, on the interpreter (slower), instead of being blocked\n- A first-run setup guide for new players: JIT, firmware, games and 3DS keys, controls\n- Report on GitHub (Settings › About): saves the problem report to Files and opens an issue with your device and the end of the log filled in\n- Siri and Shortcuts: \"Play <game> in Hinoki\"\n- Game compression for PS Vita and 3DS: games keep playing from the compressed files\n- In-app updater, favorites on the home screen and in the library\n- Advanced touch controls (optional): aim deadzone, mouse-style camera, macro touch spots, stick re-centring and zones, separate button moves\n- SideStore: signing expiry warning and \"Signed until\"\n\nPerformance and fixes\n- Fewer frame drops while a game builds new shaders (a new area, or the first run after an update)\n- 3DS: input sleeps while a menu is open, fast forward turns off when the phone gets hot, input capped at 60 Hz on 120 Hz screens\n- The home screen idles during games\n- Fixes for HUD textures, PS TV mode (now also per game), texture memory and changes since 1.6.0 that broke some games\n- Real-Vita kernel plugins are skipped instead of crashing\n- 3DS: ZL, ZR and the C-stick no longer stay on screen while a controller hides the rest\n- Translations for everything new\n\n## Install\n- **AltStore / SideStore:** add the source `https://raw.githubusercontent.com/oledz-i/Hinoki/main/dist/altstore/source.json` to get updates in-app.\n- **LiveContainer / TrollStore / other signers:** download `Hinoki-1.6.2.ipa` below.\n\nBuild 304, commit e4fc3bb.",
+          "downloadURL": "https://github.com/oledz-i/Hinoki/releases/download/v1.6.2/Hinoki-1.6.2.ipa",
+          "size": 26360992,
+          "minOSVersion": "17.4"
+        },
+        {
           "version": "1.6.1",
           "buildVersion": "279",
           "date": "2026-11-20T17:44:36Z",
@@ -154,11 +163,11 @@
         ],
         "privacy": {}
       },
-      "version": "1.6.1",
-      "versionDate": "2026-11-20T17:44:36Z",
-      "versionDescription": "Hinoki 1.6.1\n\nFixes\n- RAM helpers work again in LiveContainer with Helper Process Support on: LiveContainer's newer helper support (from 15 Nov 2026) was taken for \"option off\", and Hinoki never started the helpers\n- If Hinoki ever can't tell whether your container supports helpers, it now tries once instead of refusing\n- A leftover development script is no longer packaged in the app\n\n\n## Install\n- **AltStore / SideStore:** add the source `https://raw.githubusercontent.com/oledz-i/Hinoki/main/dist/altstore/source.json` to get updates in-app.\n- **LiveContainer / TrollStore / other signers:** download `Hinoki-1.6.1.ipa` below.\n\nBuild 279, commit e58f91b.",
-      "downloadURL": "https://github.com/oledz-i/Hinoki/releases/download/v1.6.1/Hinoki-1.6.1.ipa",
-      "size": 25960621
+      "version": "1.6.2",
+      "versionDate": "2026-11-25T14:07:10Z",
+      "versionDescription": "New\n- Controls laid out like a PS Vita: HOME bottom left (where the PS button is), SELECT and START bottom right, nothing across the top of the game\n- HOME opens a new quick menu on both PS Vita and 3DS: pause, screenshot, rear touchpad, show or hide controls, edit layout, performance overlay and quit; on 3DS also save states, fast forward, swap screens, screen layout and the 3DS HOME button. A controller's Home/PS button opens it too\n- Trophies: every game's trophies in a Trophies bubble on the home screen (next to Content Manager), on each game's page and in the library menu, with a \"You have earned a trophy\" banner in game\n- 3DS: a new Comfort control layout (Settings › 3DS › Control layout) and a lighter look for every control; anyone who had moved controls keeps Classic\n- 3DS games start without JIT too, on the interpreter (slower), instead of being blocked\n- A first-run setup guide for new players: JIT, firmware, games and 3DS keys, controls\n- Report on GitHub (Settings › About): saves the problem report to Files and opens an issue with your device and the end of the log filled in\n- Siri and Shortcuts: \"Play <game> in Hinoki\"\n- Game compression for PS Vita and 3DS: games keep playing from the compressed files\n- In-app updater, favorites on the home screen and in the library\n- Advanced touch controls (optional): aim deadzone, mouse-style camera, macro touch spots, stick re-centring and zones, separate button moves\n- SideStore: signing expiry warning and \"Signed until\"\n\nPerformance and fixes\n- Fewer frame drops while a game builds new shaders (a new area, or the first run after an update)\n- 3DS: input sleeps while a menu is open, fast forward turns off when the phone gets hot, input capped at 60 Hz on 120 Hz screens\n- The home screen idles during games\n- Fixes for HUD textures, PS TV mode (now also per game), texture memory and changes since 1.6.0 that broke some games\n- Real-Vita kernel plugins are skipped instead of crashing\n- 3DS: ZL, ZR and the C-stick no longer stay on screen while a controller hides the rest\n- Translations for everything new\n\n## Install\n- **AltStore / SideStore:** add the source `https://raw.githubusercontent.com/oledz-i/Hinoki/main/dist/altstore/source.json` to get updates in-app.\n- **LiveContainer / TrollStore / other signers:** download `Hinoki-1.6.2.ipa` below.\n\nBuild 304, commit e4fc3bb.",
+      "downloadURL": "https://github.com/oledz-i/Hinoki/releases/download/v1.6.2/Hinoki-1.6.2.ipa",
+      "size": 26360992
     }
   ]
 }
