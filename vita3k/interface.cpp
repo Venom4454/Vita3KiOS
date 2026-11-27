@@ -27,6 +27,7 @@
 #include <display/functions.h>
 #include <display/state.h>
 #include <emuenv/state.h>
+#include <io/device.h>
 #include <io/functions.h>
 #include <io/vfs.h>
 #include <kernel/state.h>
@@ -47,6 +48,7 @@
 #include <util/string_utils.h>
 
 #include <algorithm>
+#include <cctype>
 #include <util/vector_utils.h>
 #include <util/vita_theme_utils.h>
 
@@ -687,15 +689,32 @@ static ExitCode load_app_impl(SceUID &main_module_id, EmuEnvState &emuenv, const
     // the launcher's place, as the Xbox port (ReVita) does, starts the game the way it expects to start.
     // If the target doesn't load, the launcher runs as before.
     if (launch_request.self_path.empty() && emuenv.cfg.self_path.empty()) {
-        static constexpr const char *launcher_targets[] = { "uncharted.self" };
+        std::vector<std::string> launcher_targets = { "uncharted.self" };
         vfs::FileBuffer eboot;
         if (vfs::read_app_file(eboot, emuenv.vita_fs_path, emuenv.io.app_path, EBOOT_PATH) && eboot.size() < 0x10000) {
-            for (const char *target : launcher_targets) {
+            // Other games built the same way (a tiny eboot.bin next to the real executable, e.g. stuck on the
+            // first splash screen like Uncharted was): when the game folder holds exactly one other .self,
+            // that's what the launcher would start
+            std::error_code ec;
+            const fs::path app_dir = device::construct_emulated_path(VitaIoDevice::ux0, "app/" + emuenv.io.app_path, emuenv.vita_fs_path);
+            std::vector<std::string> selves;
+            for (const auto &entry : fs::directory_iterator(app_dir, ec)) {
+                if (!entry.is_regular_file(ec))
+                    continue;
+                std::string name = entry.path().filename().string();
+                std::string lower = name;
+                std::ranges::transform(lower, lower.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+                if (lower.ends_with(".self") && lower != "eboot.bin")
+                    selves.push_back(std::move(name));
+            }
+            if (selves.size() == 1 && std::ranges::find(launcher_targets, selves.front()) == launcher_targets.end())
+                launcher_targets.push_back(selves.front());
+            for (const std::string &target : launcher_targets) {
                 vfs::FileBuffer probe;
                 if (!vfs::read_app_file(probe, emuenv.vita_fs_path, emuenv.io.app_path, target))
                     continue;
                 LOG_INFO("eboot.bin is a launcher ({} bytes): starting {} directly", eboot.size(), target);
-                main_module_id = load_module(emuenv, std::string("app0:") + target);
+                main_module_id = load_module(emuenv, "app0:" + target);
                 if (main_module_id >= 0) {
                     emuenv.self_path = target;
                     break;
