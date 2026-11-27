@@ -650,3 +650,6 @@
 "Every game's trophies: a bubble on the Vita home screen, or the library's menu" = "所有游戏的奖杯：Vita 主屏幕上的气泡，或资料库菜单";
 "Touch control changes apply the next time a game starts. In game, HOME (bottom left, where a Vita's PS button is) opens the quick menu: pause, screenshot, rear touchpad, hide or show the controls, edit the layout (drag and pinch to move and resize buttons), performance overlay and quit. With a controller, press Home/PS or hold Select + Start." = "触控按键的更改会在下次启动游戏时生效。游戏中，HOME（左下，Vita 的 PS 键位置）打开快捷菜单：暂停、截图、背面触摸板、显示或隐藏按键、编辑布局（拖动和双指缩放来移动、调整按键大小）、性能显示以及退出。使用手柄时，按 Home/PS 或按住 Select + Start。";
 "Up to four buttons that hold several Vita buttons at once. One can also steer a stick while you hold it: hold to aim and drag the same finger to look around. They appear on screen the next time a game starts; move and resize them with Edit layout in the quick menu (HOME)." = "最多四个可同时按住多个 Vita 按键的按钮。其中一个在按住时还能控制摇杆：按住瞄准，同一根手指拖动环顾四周。下次启动游戏时出现；在快捷菜单（HOME）的编辑布局中移动和调整大小。";
+"This game seems stuck" = "游戏似乎卡住了";
+"Nothing new has been drawn for 25 seconds. If it stays like this, quit, then Settings › About › Report on GitHub: the report says what the game was doing." = "25 秒内没有绘制任何新画面。如果一直这样，请退出，然后使用 设置 › 关于 › 在 GitHub 上报告：报告会说明游戏当时在做什么。";
+"Keep waiting" = "继续等待";

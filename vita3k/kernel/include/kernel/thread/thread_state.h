@@ -106,6 +106,11 @@ struct ThreadState {
 
     // Status and info
     ThreadStatus get_status() const;
+    // What the thread waits on right now (type 0 when it isn't waiting), for the stuck-game report
+    WaitTarget current_wait() const {
+        const std::lock_guard<std::mutex> lock(mutex);
+        return wait_target;
+    }
     // The thread's info, as sceKernelGetThreadInfo reports it
     SceKernelThreadInfo info();
     // The room left on the stack, all of it for a dormant thread

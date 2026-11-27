@@ -118,3 +118,24 @@ public func v3kTrophyUnlocked(_ name: UnsafePointer<CChar>?, _ detail: UnsafePoi
         TrophyBannerView.show(.init(name: title, grade: Int(grade), icon: data.flatMap { UIImage(data: $0) }))
     }
 }
+
+/// Called by the watchdog when a game has shown no new picture for 25 seconds (stuck on a splash screen,
+/// frozen): says so, and how to get the log that shows why to us. The watchdog has just written what
+/// every game thread was doing into that log.
+@_cdecl("v3k_game_seems_stuck")
+public func v3kGameSeemsStuck() {
+    DispatchQueue.main.async {
+        guard let root = ControlsHost.window?.rootViewController, root.presentedViewController == nil else { return }
+        let alert = UIAlertController(
+            title: L("This game seems stuck"),
+            message: L("Nothing new has been drawn for 25 seconds. If it stays like this, quit, then Settings › About › Report on GitHub: the report says what the game was doing."),
+            preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: L("Keep waiting"), style: .cancel))
+        alert.addAction(UIAlertAction(title: L("Quit game"), style: .destructive) { _ in
+            v3k_set_game_paused(2, false)
+            v3k_set_game_paused(1, false)
+            v3k_pad_request_exit()
+        })
+        root.present(alert, animated: true)
+    }
+}

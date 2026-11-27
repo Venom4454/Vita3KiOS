@@ -148,6 +148,9 @@ extern "C" void v3k_set_portrait_unlocked(bool unlocked);
 extern "C" void v3k_controls_attach(void *ui_window);
 extern "C" void v3k_controls_detach(void);
 extern "C" void v3k_controls_show_menu(void);
+// The game showed no frame for 25 s: Swift tells the player how to send the log (TrophyBanner.swift); weak so
+// builds without the app's Swift side still link
+extern "C" void v3k_game_seems_stuck(void) __attribute__((weak));
 
 namespace {
 
@@ -296,6 +299,7 @@ int main(int argc, char *argv[]) {
             uint64_t screen_skipped_at_log = presentation::counters().skipped.load();
             uint64_t screen_wait_at_log = presentation::counters().wait_ns.load();
             uint64_t least_memory = os_proc_available_memory();
+            bool stuck_reported = false;
             const auto record_status = [&](double fps) {
                 ios::crash::session_status(fmt::format("{} MiB of memory left{}{}{}{}",
                     os_proc_available_memory() / (1024 * 1024), fps >= 0.0 ? fmt::format(", {:.1f} FPS", fps) : std::string(), stall_logged ? ", no new frame for 8+ seconds" : "",
@@ -325,6 +329,36 @@ int main(int argc, char *argv[]) {
                     stall_logged = true;
                     stalls++;
                     record_status(-1.0);
+                } else if (stall_logged && !stuck_reported && now - last_progress > 25s) {
+                    // Still nothing after 25 seconds (a game stuck on its splash screen): what every guest
+                    // thread is doing goes in the log, which is what a report needs to find out why, and the
+                    // player is told how to send it
+                    stuck_reported = true;
+                    std::string text;
+                    {
+                        std::lock_guard<std::mutex> guard(emuenv->kernel.mutex);
+                        for (const auto &[id, thread] : emuenv->kernel.threads) {
+                            if (!thread)
+                                continue;
+                            const ThreadStatus status = thread->get_status();
+                            const WaitTarget wait = thread->current_wait();
+                            const char *state = "other";
+                            if (status == ThreadStatus::running)
+                                state = "running";
+                            else if (status == ThreadStatus::waiting)
+                                state = "waiting";
+                            else if (status == ThreadStatus::dormant)
+                                state = "dormant";
+                            text += fmt::format("\n  #{} {} prio {}: {}", id, thread->name, thread->get_priority(), state);
+                            if (wait.type)
+                                text += fmt::format(" (wait type 0x{:X} on {})", wait.type, wait.id);
+                            if (status != ThreadStatus::running && thread->cpu)
+                                text += fmt::format(" pc 0x{:08X} lr 0x{:08X}", read_pc(*thread->cpu), read_lr(*thread->cpu));
+                        }
+                    }
+                    LOG_ERROR("Watchdog: no new frame for 25 seconds. Guest threads:{}", text);
+                    if (v3k_game_seems_stuck)
+                        v3k_game_seems_stuck();
                 }
                 if (ios::memory_warning_count() != memory_warnings) {
                     LOG_WARN("Watchdog: iOS warned that memory is low, {} MiB left", os_proc_available_memory() / (1024 * 1024));
