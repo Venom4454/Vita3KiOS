@@ -121,6 +121,10 @@ static void process_batch(renderer::State &state, const FeatureState &features, 
         return table;
     }();
 
+    // the guest may have written textures since the previous command list (upstream 5ced826a)
+    if (auto *cache = state.get_texture_cache())
+        cache->invalidate_hashes();
+
     if (command_list.context)
         state.context = command_list.context;
 
@@ -130,6 +134,12 @@ static void process_batch(renderer::State &state, const FeatureState &features, 
     do {
         if (cmd == nullptr) {
             break;
+        }
+
+        // draws and state changes neither write guest memory nor let the guest write it in between
+        if (cmd->opcode != CommandOpcode::Draw && cmd->opcode != CommandOpcode::SetState) {
+            if (auto *cache = state.get_texture_cache())
+                cache->invalidate_hashes();
         }
 
         CommandHandlerFunc *handler = handlers[static_cast<std::uint8_t>(cmd->opcode)];

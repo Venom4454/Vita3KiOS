@@ -734,13 +734,18 @@ void TextureCache::cache_and_bind_texture(const SceGxmTexture &gxm_texture, MemS
                 info->first_mip_hash = first_size < info->texture_size ? hash_texture_data(gxm_texture, first_size, mem) ^ 1 : info->hash;
             }
             info->hashed_epoch = hash_epoch;
+            info->hashed_generation = hash_generation;
         }
     } else {
         // Texture is cached.
         index = cached_gxm_texture_index;
         info = gxm_it->second;
         configure = false;
-        if (info->use_hash && !import_textures && !export_textures) {
+        if (info->use_hash && info->hashed_generation == hash_generation) {
+            // already hashed (and uploaded if it changed) since guest memory last could change
+            upload = false;
+        } else if (info->use_hash && !import_textures && !export_textures) {
+            info->hashed_generation = hash_generation;
             // The first level is checked at every draw, as before v1.6.0: a game that writes into a texture
             // between two draws of a scene (glyphs added to a font atlas, a HUD texture filled in) needs the
             // later draws to see it, and checking once per scene left HUDs and text stale. The rest of the
@@ -759,6 +764,7 @@ void TextureCache::cache_and_bind_texture(const SceGxmTexture &gxm_texture, MemS
             }
             info->hashed_epoch = hash_epoch;
         } else if (info->use_hash) {
+            info->hashed_generation = hash_generation;
             const uint64_t previous_hash = info->hash;
             info->hash = hash_texture_nostride(gxm_texture, mem);
             info->first_mip_hash = info->hash;

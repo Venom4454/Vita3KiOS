@@ -62,6 +62,8 @@ struct TextureCacheInfo {
     // hashed at every draw, see first_mip_hash)
     uint64_t hashed_epoch = UINT64_MAX;
     uint64_t hash = 0;
+    // hash_generation of the texture cache when it was last hashed
+    uint64_t hashed_generation = UINT64_MAX;
     // hash of the first level alone (checked at every draw; equals hash without a mip chain)
     uint64_t first_mip_hash = 0;
     SceGxmTexture texture;
@@ -187,6 +189,11 @@ public:
     uint64_t current_frame = 0;
     // Scenes begun so far (counted by the renderer at each scene): see TextureCacheInfo::hashed_epoch
     uint64_t hash_epoch = 0;
+    // A texture is hashed at most once per generation: a new one starts with each command list and each
+    // command other than a draw or a state change, the only points where guest memory can have changed
+    // since (upstream 5ced826a: hashing at every draw was most of the render thread in busy scenes)
+    uint64_t hash_generation = 0;
+    void invalidate_hashes() { ++hash_generation; }
     uint64_t memory_used = 0;
     uint32_t textures_held = 0;
     uint32_t seen_pressure = 0;
