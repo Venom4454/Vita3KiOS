@@ -35,6 +35,11 @@ PCSE00084 memory-mapping=on native-buffer=on surface-sync=off surface-sync-safe=
 PCSA00017 memory-mapping=on native-buffer=on surface-sync=on async-shaders=on | Memory mapping with Native buffer: Sackboy is drawn by the GPU from mapped memory (invisible with mapping off), and mapping failed at boot only with Double buffer. Surface sync on: grey/white screen without it (Vita3K/compatibility#188). Background shaders for fewer hitches
 PCSF00021 memory-mapping=on native-buffer=on surface-sync=on async-shaders=on | Memory mapping with Native buffer: Sackboy is drawn by the GPU from mapped memory (invisible with mapping off), and mapping failed at boot only with Double buffer. Surface sync on: grey/white screen without it (Vita3K/compatibility#188). Background shaders for fewer hitches
 
+# Dynasty Warriors 8: Xtreme Legends Complete Edition (US): the HUD (portrait, name, K.O. count) went missing
+# or behind the 3D scene since v1.6.0, fine in v1.5.0. Its vertex programs declare clip planes, which v1.5.0
+# dropped: dropped again for this game (with the 2D depth fix in 1.6.3)
+PCSE00405 clip-planes=off | Vertex clip planes off, as in v1.5.0: for the missing HUD
+
 # Killzone Mercenary: same game ran at ~40 FPS with these settings and ~19 FPS with page-table mapping,
 # high accuracy and surface sync on (owner's logs)
 PCSA00107 memory-mapping=on native-buffer=off surface-sync=off high-accuracy=off fps-hack=on cpu-opt=on | Double-buffer memory mapping with surface sync and high accuracy off: about twice the frame rate in testing

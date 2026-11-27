@@ -41,6 +41,10 @@
 #include <optional>
 #include <vector>
 
+// What a search by name for "kubridge" returns: kubridge is built in (modules/kubridge), no module of
+// that name is loaded, and so_loader ports refuse to start unless they find it
+constexpr SceUID KUBRIDGE_BUILTIN_UID = 0x7FFF0B1D;
+
 struct ThreadState;
 struct MemState;
 

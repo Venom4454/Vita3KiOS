@@ -1875,11 +1875,19 @@ static spv::Function *make_vert_finalize_function(spv::Builder &b, const SpirvSh
                 spv::Id w_ref = utils::create_access_chain(b, spv::StorageClassOutput, out_var, { b.makeIntConstant(3) });
 
                 // Depth range and user clip planes are ineffective in this mode (2D draws: menus, names,
-                // fades); that can't be translated directly, so z is set to w. Vita3K-Plus dropped this on
-                // Vulkan because its renderer clamps depth instead (depthClampEnable); this one doesn't, and
-                // without it 2D draws with z outside [0, w] were clipped away: menus and names left trails
-                // that never faded (Gundam Extreme VS-Force, since v1.2.0)
-                b.createStore(b.createLoad(w_ref, spv::NoPrecision), z_ref);
+                // fades). OpenGL sets z to w. On Vulkan the draw keeps its own depth, only held inside
+                // [0, w] so it isn't clipped away: 2D draws with z outside it left trails that never faded
+                // (Gundam Extreme VS-Force). Setting z to w on Vulkan too (v1.6.x) put every such draw on the
+                // far plane, behind the 3D scene: HUDs drawn this way went missing (Dynasty Warriors 8)
+                if (translation_state.is_vulkan) {
+                    const spv::Id f32 = b.makeFloatType(32);
+                    const spv::Id w = b.createLoad(w_ref, spv::NoPrecision);
+                    const spv::Id z = b.createLoad(z_ref, spv::NoPrecision);
+                    const spv::Id upper = b.createBuiltinCall(f32, utils.std_builtins, GLSLstd450FMax, { w, b.makeFloatConstant(0.0f) });
+                    b.createStore(b.createBuiltinCall(f32, utils.std_builtins, GLSLstd450FClamp, { z, b.makeFloatConstant(0.0f), upper }), z_ref);
+                } else {
+                    b.createStore(b.createLoad(w_ref, spv::NoPrecision), z_ref);
+                }
 
                 cond_builder.makeBeginElse();
 

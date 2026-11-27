@@ -177,6 +177,11 @@ EXPORT(SceUID, _vshKernelSearchModuleByName, const char *module_name, const void
         if (strcmp(mod->info.module_name, module_name) == 0)
             return uid;
     }
+    // kubridge is built in (modules/kubridge): no kubridge.skprx is loaded, but so_loader ports look for
+    // it by name before starting ("Error kubridge.skprx is not installed." otherwise)
+    if (std::strcmp(module_name, "kubridge") == 0)
+        return KUBRIDGE_BUILTIN_UID;
+
     return RET_ERROR(SCE_KERNEL_ERROR_MODULEMGR_NO_MOD);
 }
 
