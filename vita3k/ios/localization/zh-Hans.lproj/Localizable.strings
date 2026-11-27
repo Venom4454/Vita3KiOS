@@ -653,3 +653,4 @@
 "This game seems stuck" = "游戏似乎卡住了";
 "Nothing new has been drawn for 25 seconds. If it stays like this, quit, then Settings › About › Report on GitHub: the report says what the game was doing." = "25 秒内没有绘制任何新画面。如果一直这样，请退出，然后使用 设置 › 关于 › 在 GitHub 上报告：报告会说明游戏当时在做什么。";
 "Keep waiting" = "继续等待";
+"iOS didn't let Hinoki open the folder picker (%@). This happens with some ways of installing it, a developer certificate in particular. Installed with SideStore, AltStore or LiveContainer it works. Meanwhile your saves are in Files › On My iPhone › Hinoki, to copy by hand." = "iOS 没有让 Hinoki 打开文件夹选择器（%@）。某些安装方式会这样，尤其是开发者证书。用 SideStore、AltStore 或 LiveContainer 安装即可使用。在此之前，存档位于 文件 › 我的 iPhone › Hinoki，可手动复制。";

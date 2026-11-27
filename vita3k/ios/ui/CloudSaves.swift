@@ -544,9 +544,14 @@ struct CloudSavesView: View {
         }
         .navigationTitle("Cloud saves")
         .fileImporter(isPresented: $picking, allowedContentTypes: [.folder]) { result in
-            if case let .success(url) = result {
+            switch result {
+            case .success(let url):
                 message = cloud.choose(url)
                 if message == nil { cloud.syncAll(model.apps) }
+            case .failure(let error):
+                // Some signing methods (a developer certificate in particular) leave Hinoki without the
+                // system's folder picker: say so instead of doing nothing
+                message = String(format: NSLocalizedString("iOS didn't let Hinoki open the folder picker (%@). This happens with some ways of installing it, a developer certificate in particular. Installed with SideStore, AltStore or LiveContainer it works. Meanwhile your saves are in Files › On My iPhone › Hinoki, to copy by hand.", comment: ""), error.localizedDescription)
             }
         }
         .alert(message ?? "", isPresented: Binding(get: { message != nil }, set: { if !$0 { message = nil } })) {
