@@ -723,6 +723,25 @@ std::optional<TextureLookupResult> VKSurfaceCache::retrieve_color_surface_as_tex
         VKContext *context = reinterpret_cast<VKContext *>(state.context);
         vk::CommandBuffer cmd_buffer = context->prerender_cmd;
 
+        // (upstream 0d36cee3) The surface was written by an earlier render pass, which declares an outgoing
+        // dependency for depth/stencil only: make its colour writes available to the copies below. The
+        // transfer stage also keeps an earlier scene's read of the transition buffer before it's overwritten
+        {
+            const vk::ImageLayout surface_layout = vkutil::get_underlying_layout(info.texture.layout);
+            const vk::ImageMemoryBarrier surface_barrier{
+                .srcAccessMask = vk::AccessFlagBits::eColorAttachmentWrite | vk::AccessFlagBits::eShaderWrite,
+                .dstAccessMask = vk::AccessFlagBits::eTransferRead,
+                .oldLayout = surface_layout,
+                .newLayout = surface_layout,
+                .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                .image = info.texture.image,
+                .subresourceRange = vkutil::color_subresource_range
+            };
+            cmd_buffer.pipelineBarrier(vk::PipelineStageFlagBits::eColorAttachmentOutput | vk::PipelineStageFlagBits::eFragmentShader | vk::PipelineStageFlagBits::eTransfer,
+                vk::PipelineStageFlagBits::eTransfer, {}, {}, {}, surface_barrier);
+        }
+
         if (casted == nullptr) {
             // Try to crop + cast
             casted_vec.resize(casted_vec.size() + 1);
@@ -825,6 +844,19 @@ std::optional<TextureLookupResult> VKSurfaceCache::retrieve_color_surface_as_tex
                 .imageExtent = { info.width, height, 1 }
             };
             cmd_buffer.copyImageToBuffer(info.texture.image, vk::ImageLayout::eGeneral, casted->transition_buffer.buffer, copy_image_buffer);
+
+            // the second copy reads what the first one wrote (upstream 0d36cee3: without it the cast read
+            // the previous frame or garbage, rainbow noise in Uncharted on GPUs that overlap the copies)
+            const vk::BufferMemoryBarrier transition_buffer_barrier{
+                .srcAccessMask = vk::AccessFlagBits::eTransferWrite,
+                .dstAccessMask = vk::AccessFlagBits::eTransferRead,
+                .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                .buffer = casted->transition_buffer.buffer,
+                .offset = 0,
+                .size = VK_WHOLE_SIZE
+            };
+            cmd_buffer.pipelineBarrier(vk::PipelineStageFlagBits::eTransfer, vk::PipelineStageFlagBits::eTransfer, {}, {}, transition_buffer_barrier, {});
 
             // then the buffer to the image
             const uint32_t dst_pixel_stride = (stride_bytes / bytes_per_pixel_requested) * state.res_multiplier;
