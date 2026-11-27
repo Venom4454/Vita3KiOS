@@ -238,7 +238,9 @@ COMMAND(handle_draw) {
     if (!has_color_surface && target && !target->color_observed_without_surface && record.fragment_program) {
         const SceGxmFragmentProgram *fragment = record.fragment_program.get(mem);
         const SceGxmProgram *fragment_program = fragment ? fragment->program.get(mem) : nullptr;
-        if (!fragment_program || (fragment_program->is_frag_color_used() && (fragment_program->is_discard_used() || fragment_program->is_depth_replace_used()))) {
+        // (upstream 5869a99e) storing to guest memory reads the colour back too
+        const bool stores_to_memory = fragment_program && (fragment_program->program_flags & SCE_GXM_PROGRAM_FLAG_BUFFER_STORE) != 0;
+        if (!fragment_program || (fragment_program->is_frag_color_used() && (fragment_program->is_discard_used() || fragment_program->is_depth_replace_used() || stores_to_memory))) {
             LOG_INFO_ONCE("A scene without color surface reads back the fragment color, keeping its color output");
             target->color_observed_without_surface = true;
         }
