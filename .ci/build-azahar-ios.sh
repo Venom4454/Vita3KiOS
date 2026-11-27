@@ -6,7 +6,7 @@
 set -euo pipefail
 
 AZAHAR_REPO="https://github.com/azahar-emu/azahar.git"
-AZAHAR_COMMIT="11eceda5e0e682a1f44e396bf954a1b9137097ca"
+AZAHAR_COMMIT="fd4c9abd98345dbefff9cef07aadaf61ee1f683d"
 
 output_dir="${1:-artifacts}"
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
